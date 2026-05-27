@@ -2,7 +2,7 @@
 
 # TSAR-MCP: Zero-Dependency C Framework for Edge AI
 
-A hyper-lightweight, zero-dependency C framework for building Model Context Protocol (MCP) servers on edge, embedded, and enterprise systems. 
+**TSAR** stands for *"Tools Slightly Above the Runtime."* True to that philosophy, this project provides a hyper-lightweight, zero-dependency C framework for building Model Context Protocol (MCP) servers directly on edge, embedded, and enterprise systems. 
 
 While the majority of the AI agent ecosystem relies on heavy runtime environments (Node.js, Python), **TSAR-MCP** is built for extreme efficiency. It compiles to a native binary, consumes virtually zero idle memory, and utilizes standard operating system streams (`stdio` over SSH) for secure, instant LLM-to-system communication.
 
