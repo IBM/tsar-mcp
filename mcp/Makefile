@@ -116,7 +116,7 @@ cleanall:
 # Link Rules
 # ============================================================================
 
-$(OUTDIR)/MCPServer_helloWorld: $(SHARED_OBJS)
+$(OUTDIR)/MCPServer_helloWorld: $(SHARED_OBJS) $(O)/MCPServer_helloWorld.o
 	$(CXX) $(LDFLAGS) $^ -o $@ $(LIBS)
 
 # ============================================================================
@@ -137,5 +137,9 @@ $(O)/%.o: $(PARSER_DIR)/%.cpp
 
 # MCP base (MCPServer.cpp, MCPServerJSON.cpp)
 $(O)/%.o: $(MCPBASE_DIR)/%.cpp
+	$(CXX) $(CXXFLAGS) $(INC_CORE) -c $< -o $@
+
+# MCP servers - helloWorld
+$(O)/%.o: $(MCPSRV_DIR)/helloWorld/%.cpp
 	$(CXX) $(CXXFLAGS) $(INC_CORE) -c $< -o $@
 

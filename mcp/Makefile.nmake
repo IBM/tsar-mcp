@@ -152,7 +152,7 @@ cleanall:
 # helloWorld: core + shared (no async)
 #
 
-$(OUTDIR)\MCPServer_helloWorld.exe: $(SHARED_OBJS)
+$(OUTDIR)\MCPServer_helloWorld.exe: $(SHARED_OBJS) $(O)\MCPServer_helloWorld.obj
     $(LINK) $(LDFLAGS) /OUT:$@ $** $(LIBS)
 
 # ============================================================================
@@ -173,6 +173,10 @@ $(OUTDIR)\MCPServer_helloWorld.exe: $(SHARED_OBJS)
 
 # MCP base (MCPServer.cpp, MCPServerJSON.cpp)
 {$(MCPBASE_DIR)\}.cpp{$(O)\}.obj:
+    $(CC) $(CFLAGS) $(INC_CORE) /Fo$@ $<
+
+# MCP servers - helloWorld
+{$(MCPSRV_DIR)\helloWorld\}.cpp{$(O)\}.obj:
     $(CC) $(CFLAGS) $(INC_CORE) /Fo$@ $<
 
 

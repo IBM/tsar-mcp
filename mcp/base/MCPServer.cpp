@@ -9,9 +9,12 @@
  * SPDX-License-Identifier: MIT
  */
 //
-//      Version: 02/13/2026 (reviewd and corrected by Opus on 06/23/2026)
+//      Version: 02/14/2026 (reviewd and corrected by Opus on 06/23/2026)
 //
 //      Specification: https://modelcontextprotocol.io/specification/
+//      
+//      To Register in VSCode: Ctrl-Shift-P > MCP:List Servers > + Add Server
+//      To Control Server: Ctrl-Shift-P > MCP:List Servers > Start / Stop
 //
 
 #include <stdarg.h>
@@ -34,33 +37,11 @@
 #endif
 
 #include <LevelTrace.h>
-#include <MainArguments.h>
 #include <MEMprintf.h>
 
-#include <MCPServerJSON.h>
-
-#define MCPServer_Name "MCPServer_HelloWorld"
-#define MCPServer_Version "0.1.0"
+#include <MCPServerCore.h>
 
 #define MCPServerLOG "MCPServerLog.txt"                 // Log File.
-
-// ******************************
-// **** Tools in this module ****
-// ******************************
-
-char* MCPtool_helloWorld(JSON_Value *idRequest, JSON_Object *Arguments);
-              
-// *************************
-// **** MCP Error Codes ****
-// *************************
-
-#define MCPErrorCode_ParseError -32700
-#define MCPErrorCode_InvalidRequest -32600
-#define MCPErrorCode_NoMethod -32601
-#define MCPErrorCode_InvalidParms -32602
-#define MCPErrorCode_Exception -32603
-#define MCPErrorCode_ServerDefMin -32000
-#define MCPErrorCode_ServerDefMax -32099
 
 // ***************************************************************************
 // **** Utilities ************************************************************
@@ -204,12 +185,104 @@ void FreeMCPResponseBuffer(char **Buffer)
         }
 
 // ---------------------------------------------------------------------------
+// ---- FormMCPResponse_Text -------------------------------------------------
+// ---------------------------------------------------------------------------
+
+char* FormMCPResponse_Text(JSON_Value *idRequest, const char *Text)
+        {
+        /* ----- OUTPUT (If Text provided) ---------------------------
+        {
+           "jsonrpc": "2.0",
+           "id": 1,
+           "result": {
+             "content": [{"type":"text","text":"..."}],
+             "isError": false
+           }
+        }
+        ----- OUTPUT (If Text is NULL) -------------------------------
+        {
+           "jsonrpc": "2.0",
+           "id": 1,
+           "result": {}
+        }
+        ----------------------------------------------------------- */
+        JSON_Object root;
+        root.Add_member_string("jsonrpc", "2.0");
+        root.Add_member_value("id", *idRequest);
+        JSON_Object *result = root.Add_member_object("result");
+        if (Text && result)
+                {
+                JSON_Value_Array *content = result->Add_member_array("content");
+                if (content)
+                        {
+                        JSON_Object *textItem = content->Add_value_object();
+                        if (textItem)
+                                {
+                                textItem->Add_member_string("type", "text");
+                                textItem->Add_member_string("text", Text);
+                                }
+                        }
+                result->Add_member_bool("isError", false);
+                }
+        MemoryPrintf Canvas;
+        PrintJSONObject(Canvas, root, true, false);
+        return Canvas.AquireBuffer();
+        }
+
+// ---------------------------------------------------------------------------
+// ---- FormMCPResponse_Text -------------------------------------------------
+// ---------------------------------------------------------------------------
+
+char* FormMCPResponse_Text(JSON_Value *idRequest, 
+                           const char *Text, 
+                           bool isError)
+        {
+        /* ----- OUTPUT (If Text provided) ---------------------------
+        {
+           "jsonrpc": "2.0",
+           "id": 1,
+           "result": {
+             "content": [{"type":"text","text":"..."}],
+             "isError": false
+           }
+        }
+        ----- OUTPUT (If Text is NULL) -------------------------------
+        {
+           "jsonrpc": "2.0",
+           "id": 1,
+           "result": {}
+        }
+        ----------------------------------------------------------- */
+        JSON_Object root;
+        root.Add_member_string("jsonrpc", "2.0");
+        root.Add_member_value("id", *idRequest);
+        JSON_Object *result = root.Add_member_object("result");
+        if (Text && result)
+                {
+                JSON_Value_Array *content = result->Add_member_array("content");
+                if (content)
+                        {
+                        JSON_Object *textItem = content->Add_value_object();
+                        if (textItem)
+                                {
+                                textItem->Add_member_string("type","text");
+                                textItem->Add_member_string("text",Text);
+                                }
+                        }
+                result->Add_member_bool("isError",isError);
+                }
+        MemoryPrintf Canvas;
+        PrintJSONObject(Canvas, root, true, false);
+        return Canvas.AquireBuffer();
+        }
+
+// ---------------------------------------------------------------------------
 // ---- FormMCPResponse_ERROR ------------------------------------------------
 // ---------------------------------------------------------------------------
 
 char* FormMCPResponse_ERROR(JSON_Value *idRequest,
                             int Code, 
-                            const char *Message, 
+                            const char *ErrorTag, 
                             const char *ErrorFormat,
                             ...)
         {
@@ -230,10 +303,9 @@ char* FormMCPResponse_ERROR(JSON_Value *idRequest,
         Canvas.printf("\"jsonrpc\":\"2.0\",");
         Canvas.printf("\"id\":%s,",id2string(idRequest));
         Canvas.printf("\"error\":{");
-        Canvas.printf("\"code\":\"%d\",",Code);
-        Canvas.printf("\"message\":\"%s\",",Message);
+        Canvas.printf("\"code\":%d,",Code);
         // ----------------------------
-        // ---- Foremat Error Text ----
+        // ---- Format Error Text ----
         // ----------------------------
         va_list Args;
         MemoryPrintf ErrorCanvas;
@@ -241,11 +313,31 @@ char* FormMCPResponse_ERROR(JSON_Value *idRequest,
         ErrorCanvas.vprintf(ErrorFormat, Args);
         va_end(Args);
         const char *ErrorText = ErrorCanvas.GetBuffer();
-        TDEBUG(("%s: Error (id=%s): %s: %s",ProcName,
-                                             id2string(idRequest),
-                                             Message,
-                                             ErrorText ? ErrorText 
-                                                       : "(no detail)"));
+        // ----------------------------------------------
+        // ---- Emit "message" with truncated detail ----
+        // ----------------------------------------------
+        MemoryPrintf MessageCanvas;
+        MessageCanvas.printf(!ErrorText 
+                             ? "%s" 
+                             : strlen(ErrorText) <= 128
+                             ? "%s [%s]"
+                             : "%s [%.128s...]",ErrorTag,ErrorText);
+        const char *CombinedMsg = MessageCanvas.GetBuffer();
+        if (CombinedMsg)
+                {
+                char *jsonMessage = EscapeJSONString(CombinedMsg);
+                if (jsonMessage) 
+                        {
+                        Canvas.printf("\"message\":\"%s\",",jsonMessage);
+                        }
+                FreeEscapeJSONString(&jsonMessage);
+                }
+        TDEBUG(("%s: Error (id=%s): %s",ProcName,
+                                        id2string(idRequest),
+                                        CombinedMsg ? CombinedMsg : ErrorTag));
+        // --------------------------------
+        // ---- Emit full "data" field ----
+        // --------------------------------
         if (ErrorText)
                 {
                 char *jsonErrorText = EscapeJSONString(ErrorText);
@@ -373,58 +465,6 @@ void Handle_initialized(MCPInputRequest *MCPRequest)
 // **** MCP Directoy Handling ************************************************
 // ***************************************************************************
 
-struct MCPToolInfo_t  
-        {
-        const char *Name;
-        const char *Description;
-        int nProperties;
-        const char* Properties[10];
-        const char *Required;
-        };
-
-#define MCPToolInfoCount 1
-
-MCPToolInfo_t MCPToolInfo[] = 
-        {
-                // --------------------
-                // ---- helloWorld ----
-                // --------------------
-                {
-                // Name
-                "helloWorld",
-                // Description
-                "Checks the connection to the MCPServer.",
-                1,
-                // InputSchema {Properties}
-                        {
-                        "\"name\":{\"type\":\"string\"}"
-                        },
-                // [Required]
-                "\"name\""
-                },
-                // -------------------------------
-                // ---- get_block_info (Test) ----
-                // -------------------------------
-                {
-                // Name
-                "get_block_info",
-                // Description
-                "Returns details about a block at specific coordinates.",
-                3,
-                // InputSchema {Properties}
-                        {
-                        "\"x\":{\"type\":\"number\"}",
-                        "\"y\":{\"type\":\"number\"}",
-                        "\"z\":{\"type\":\"number\"}"
-                        },
-                // [Required]
-                "\"x\",\"y\",\"z\""
-                }
-                // ---------------
-                // ---- <end> ----
-                // ---------------
-        };
-
 // ---------------------------------------------------------------------------
 // ---- Handle_tools_list ----------------------------------------------------
 // ---------------------------------------------------------------------------
@@ -472,7 +512,7 @@ char* Handle_tools_list(JSON_Value *idRequest)
         // ----------------
         Canvas.printf("\"result\":{");
         Canvas.printf("\"tools\":[");
-        for (int i = 0; i < MCPToolInfoCount; i++)
+        for (unsigned i = 0; i < MCPToolInfoCount; i++)
                 {
                 Canvas.printf("{");
                 Canvas.printf("\"name\":\"%s\",",MCPToolInfo[i].Name);
@@ -480,8 +520,8 @@ char* Handle_tools_list(JSON_Value *idRequest)
                 Canvas.printf("\"inputSchema\":{");
                 Canvas.printf("\"type\":\"object\",");
                 Canvas.printf("\"properties\":{");
-                int nProperties = MCPToolInfo[i].nProperties;
-                for (int j=0; j < nProperties; j++)
+                unsigned nProperties = MCPToolInfo[i].nProperties;
+                for (unsigned j=0; j < nProperties; j++)
                         {
                         Canvas.printf(j + 1 == nProperties ? "%s" : "%s,",
                                       MCPToolInfo[i].Properties[j]);
@@ -539,11 +579,9 @@ char* Handle_tools_call(MCPInputRequest *MCPRequest)
                                                   "Missing arguments for '%s'",
                                                   ToolName);
                 }
-        else if (strcmp(ToolName,"helloWorld") == 0)  
+        else MCPOutput = Handle_tools_call(*idRequest,ToolName,*Arguments);
+        if (!MCPOutput)
                 {
-                MCPOutput = MCPtool_helloWorld(idRequest,Arguments);
-                }
-        else    {
                 MCPOutput = FormMCPResponse_ERROR(idRequest,
                                                   MCPErrorCode_InvalidParms,
                                                   "Unknown tool call",
@@ -552,92 +590,12 @@ char* Handle_tools_call(MCPInputRequest *MCPRequest)
                 }
         return MCPOutput;
         }
-// ---------------------------------------------------------------------------
-// ---- Handle_helloWorld ----------------------------------------------------
-// ---------------------------------------------------------------------------
-
-char* FormMCPResponse_helloWorld(JSON_Value *idRequest, const char *Name)
-        {
-        const char *ProcName = "FormMCPResponse_helloWorld";
-        /* ----- OUTPUT ----------------------------------------------
-        {
-          "jsonrpc": "2.0",
-          "id": 3,
-          "result": {
-            "content": [
-              {
-                "type": "text", 
-                "text": "How are you, Eric."
-              }
-            ],
-            "isError": false
-          }
-        }
-
-        Note: The "type" field is one of:
-                - "text": Plain text content.
-                - "markdown": Markdown-formatted text.
-                - "html": HTML-formatted content.
-                - "image": An image, which would include a URL and alt text.
-                - "list": A list, which would include an array of items.
-        ----------------------------------------------------------- */
-        MemoryPrintf Canvas;
-        Canvas.printf("{");
-        Canvas.printf("\"jsonrpc\":\"2.0\",");
-        Canvas.printf("\"id\":%s,",id2string(idRequest));
-        // ----------------
-        // ---- result ----
-        // ----------------
-        Canvas.printf("\"result\":{");
-        Canvas.printf("\"content\":[{");
-        char *jsonName = EscapeJSONString(Name);
-        Canvas.printf("\"type\":\"text\","
-                      "\"text\":\"How are you, %s.\"",
-                      jsonName ? jsonName : Name);
-        FreeEscapeJSONString(&jsonName);
-        Canvas.printf("}],"); /* content */
-        Canvas.printf("\"isError\":false");
-        Canvas.printf("}"); /* result */
-        // ----------------
-        // ----------------
-        Canvas.printf("}");
-        return Canvas.AquireBuffer();
-        }
-
-char* MCPtool_helloWorld(JSON_Value *idRequest, JSON_Object *Arguments)
-        {
-        const char *ProcName = "MCPtool_helloWorld";
-        /* ----- INPUT -----------------------------------------------
-        {
-          "jsonrpc": "2.0",
-          "id": 3,
-          "method": "tools/call",
-          "params": {
-            "name": "helloWorld",
-            "arguments": { "name": "Eric" }
-          }
-        }
-        ----------------------------------------------------------- */
-        if (!Arguments) return NULL;
-        char *MCPOutput = NULL;
-        const char *Name = Arguments->Find_member_string("name");
-        if (!Name)
-                {
-                TERROR(("%s: Missing Argument: 'name'",ProcName));
-                MCPOutput = FormMCPResponse_ERROR(idRequest,
-                                                  MCPErrorCode_InvalidParms,
-                                                  "Invalid Params",
-                                                  "Missing required parameter: name");
-                }
-        else    {
-                MCPOutput = FormMCPResponse_helloWorld(idRequest,Name);
-                }
-        return MCPOutput;
-        }
 
 // ***************************************************************************
 // **** MCP Main *************************************************************
 // ***************************************************************************
+
+bool MCPServerInitalized = true;
 
 int MCPMain(const char *InputRequestBuffer, FILE *out)
         {
@@ -708,6 +666,7 @@ int MCPMain(const char *InputRequestBuffer, FILE *out)
                         }
                 if (strcmp(Method,"initialize") == 0)
                         {
+                        MCPServerInitalized = MCPServer_OnInitialize(*MCPRequest);
                         MCPOutput = Handle_initialize(MCPRequest);
                         break;
                         }
@@ -716,7 +675,7 @@ int MCPMain(const char *InputRequestBuffer, FILE *out)
                         MCPOutput = Handle_tools_list(idRequest);
                         break;
                         }
-                if (strcmp(Method,"tools/call") == 0)
+                if (strcmp(Method, "tools/call") == 0)
                         {
                         MCPOutput = Handle_tools_call(MCPRequest);
                         break;
@@ -799,6 +758,8 @@ int MCPMain(FILE *in, FILE *out)
 // **** MCP Test *************************************************************
 // ***************************************************************************
 
+extern const char* MCPInputTestRequests[];    // Array of requests, NULL term.
+
 const char* MCPInputTestRequest_Init =
         "{"
         "  \"jsonrpc\": \"2.0\","
@@ -819,24 +780,26 @@ const char* MCPInputTestRequest_List =
         "  \"params\": {}"
         "}"; 
 
-const char* MCPInputTestRequest_Call =
-        "{"
-         " \"jsonrpc\": \"2.0\","
-         " \"id\": 3,"
-         " \"method\": \"tools/call\","
-         " \"params\": {"
-         "   \"name\": \"helloWorld\","
-         "   \"arguments\": { \"name\": \"eric\" }"
-         " }"
-         "}"; 
-
-const char *MCPInputTestRequest = MCPInputTestRequest_Call;
-
 int MCPTest(FILE *out)
         {
         const char *ProcName = "MCPTest";
-        TraceJSON(MCPInputTestRequest);
-        return MCPMain(MCPInputTestRequest,out);
+        // --------------
+        // Initialization
+        // --------------
+        int rc = MCPMain(MCPInputTestRequest_Init,out);
+        // ---------
+        // Tool List
+        // ---------
+        if (rc == 0) rc = MCPMain(MCPInputTestRequest_List,out);
+        // ----------------
+        // Aspect Test Call
+        // ----------------
+        for (unsigned i=0; rc == 0 && MCPInputTestRequests[i]; i++)
+                {
+                const char *Request = MCPInputTestRequests[i]; 
+                rc = MCPMain(Request,out);
+                }
+        return rc;
         }
 
 // ***************************************************************************
@@ -870,7 +833,7 @@ int main(int argc, const char *argv[])
                         }
                 SetLevelTraceFunction(LevelTraceFileTrace,LevelTraceFile);
                 }
-        SetMaxTraceLevel(TRACELEVEL_DEBUG); 
+        SetMaxTraceLevel(TRACELEVEL_DEBUG);  
         // ********************
         // **** Initialize ****
         // ********************
@@ -891,6 +854,7 @@ int main(int argc, const char *argv[])
                         }
                 Status = MCPMain(stdin,stdout);
                 }
+        if (MCPServerInitalized) MCPServer_OnShutdown();
         DeinitJSONParser();
         // ***********************
         // **** Cleanup Trace ****
@@ -902,3 +866,7 @@ int main(int argc, const char *argv[])
                 }
         return Status;
         }
+
+// ****************************************************************************
+// ******************************* End of File ********************************
+// ****************************************************************************
