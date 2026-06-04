@@ -1,0 +1,226 @@
+PGM
+             DCL        VAR(&OPTIMIZE) TYPE(*DEC) VALUE(10)
+             DCL        VAR(&DEBUG) TYPE(*CHAR) VALUE('*ALL')
+             DCL        VAR(&INLINE) TYPE(*CHAR) VALUE('*OFF')
+             DCL        VAR(&MODCRTOPT) TYPE(*CHAR) VALUE('*KEEPILDTA')
+
+             DCL        VAR(&OPTIMCRY) TYPE(*DEC) VALUE(10) /* Max 30 */
+ 
+             /************************************************/
+             /*         Use XDA for QSQPRCED Functions       */
+             /************************************************/
+             DCL        VAR(&UseXDAPRC) TYPE(*LGL) VALUE('1')
+             DCL        VAR(&PRCXDAINC) TYPE(*CHAR) +
+                          VALUE('../../EDRSTest/QPRCEDviaXDA')
+
+             /************************************************/
+             /*         Use XDN for QSQPRCED Functions       */
+             /*                                              */
+             /* Note: ../../Network/XDN must contain headers */
+             /************************************************/
+             DCL        VAR(&UseXDNPRC) TYPE(*LGL) VALUE('1')
+             DCL        VAR(&XDNXDAINC) TYPE(*CHAR) +
+                          VALUE('../../Network/XDN')
+ 
+             /*****************************/
+             /* Compile QueryTool Modules */
+             /*****************************/
+             DCL        VAR(&PGMLIB) TYPE(*CHAR) VALUE('QGPL')
+
+             CHGCURLIB CURLIB(&PGMLIB)
+             CD DIR('../../../../base/CommonC')
+
+             CRTCPPMOD  MODULE(ITERMINAL) SRCSTMF('iTerminal.cpp') +
+                          STGMDL(*INHERIT) INLINE(&INLINE) +
+                          OPTIMIZE(&OPTIMIZE) DBGVIEW(&DEBUG) +
+                          MODCRTOPT(&MODCRTOPT) TGTCCSID(500) +
+                          TERASPACE(*YES *TSIFC) INCDIR('.')
+
+             CRTCPPMOD  MODULE(ASTHREAD) SRCSTMF('ASThread.cpp') +
+                          STGMDL(*INHERIT) INLINE(&INLINE) +
+                          OPTIMIZE(&OPTIMIZE) DBGVIEW(&DEBUG) +
+                          MODCRTOPT(&MODCRTOPT) TGTCCSID(500) +
+                          TERASPACE(*YES *TSIFC) INCDIR('.')
+
+             CRTCPPMOD  MODULE(LINKLIST) SRCSTMF('LinkList.cpp') +
+                          STGMDL(*INHERIT) INLINE(&INLINE) +
+                          OPTIMIZE(&OPTIMIZE) DBGVIEW(&DEBUG) +
+                          MODCRTOPT(&MODCRTOPT) TGTCCSID(500) +
+                          TERASPACE(*YES *TSIFC) INCDIR('.')
+
+             CRTCPPMOD  MODULE(EBCDIC) SRCSTMF('ebcdic.cpp') +
+                          STGMDL(*INHERIT) INLINE(&INLINE) +
+                          OPTIMIZE(&OPTIMIZE) DBGVIEW(&DEBUG) +
+                          MODCRTOPT(&MODCRTOPT) TGTCCSID(500) +
+                          TERASPACE(*YES *TSIFC) INCDIR('.')
+
+             CRTCPPMOD  MODULE(LEVELTRACE) SRCSTMF('LevelTrace.cpp') +
+                          STGMDL(*INHERIT) INLINE(&INLINE) +
+                          OPTIMIZE(&OPTIMIZE) DBGVIEW(&DEBUG) +
+                          MODCRTOPT(&MODCRTOPT) TGTCCSID(500) +
+                          TERASPACE(*YES *TSIFC) INCDIR('.')
+
+             CRTCPPMOD  MODULE(HEXDUMP) SRCSTMF('HexDump.cpp') +
+                          STGMDL(*INHERIT) INLINE(&INLINE) +
+                          OPTIMIZE(&OPTIMIZE) DBGVIEW(&DEBUG) +
+                          MODCRTOPT(&MODCRTOPT) TGTCCSID(500) +
+                          TERASPACE(*YES *TSIFC) INCDIR('.')
+
+             CRTCPPMOD  MODULE(MAINARGS) SRCSTMF('MainArguments.cpp') +
+                          STGMDL(*INHERIT) INLINE(&INLINE) +
+                          OPTIMIZE(&OPTIMIZE) DBGVIEW(&DEBUG) +
+                          MODCRTOPT(&MODCRTOPT) TGTCCSID(500) +
+                          TERASPACE(*YES *TSIFC) INCDIR('.')
+
+             CRTCPPMOD  MODULE(LOADLIB) SRCSTMF('LoadLib.cpp') +
+                          STGMDL(*INHERIT) INLINE(&INLINE) +
+                          OPTIMIZE(&OPTIMIZE) DBGVIEW(&DEBUG) +
+                          MODCRTOPT(&MODCRTOPT) TGTCCSID(500) +
+                          TERASPACE(*YES *TSIFC) INCDIR('.')
+
+             /* SnapStack.cpp is missing from the repository */
+             /*
+             CRTCPPMOD  MODULE(SNAPSTACK) SRCSTMF('SnapStack.cpp') +
+                          STGMDL(*INHERIT) INLINE(&INLINE) +
+                          OPTIMIZE(&OPTIMIZE) DBGVIEW(&DEBUG) +
+                          MODCRTOPT(&MODCRTOPT) TGTCCSID(500) +
+                          TERASPACE(*YES *TSIFC) INCDIR('.')
+             */
+
+             /*************************/
+             /* Compile PRCED Modules */
+             /*************************/
+             CD DIR('../../..')
+
+             IF (&UseXDNPRC) DO
+                     CRTCPPMOD  MODULE(PRCEDPP) SRCSTMF('PRCEDpp.cpp') +
+                                  STGMDL(*INHERIT) INLINE(&INLINE) +
+                                  OPTIMIZE(&OPTIMIZE) DBGVIEW(&DEBUG) +
+                                  MODCRTOPT(&MODCRTOPT) TGTCCSID(500) +
+                                  TERASPACE(*YES *TSIFC) +
+                                  INCDIR('.' '../../../../base/CommonC' +
+                                                          &PRCXDAINC +
+                                                          &XDNXDAINC)
+                     ENDDO
+             ELSE IF (&UseXDAPRC) DO
+                     CRTCPPMOD  MODULE(PRCEDPP) SRCSTMF('PRCEDpp.cpp') +
+                                  STGMDL(*INHERIT) INLINE(&INLINE) +
+                                  OPTIMIZE(&OPTIMIZE) DBGVIEW(&DEBUG) +
+                                  MODCRTOPT(&MODCRTOPT) TGTCCSID(500) +
+                                  TERASPACE(*YES *TSIFC) +
+                                  INCDIR('.' '../../../../base/CommonC' &PRCXDAINC)
+                     ENDDO
+             ELSE DO
+                     CRTCPPMOD  MODULE(PRCEDPP) SRCSTMF('PRCEDpp.cpp') +
+                                  STGMDL(*INHERIT) INLINE(&INLINE) +
+                                  OPTIMIZE(&OPTIMIZE) DBGVIEW(&DEBUG) +
+                                  MODCRTOPT(&MODCRTOPT) TGTCCSID(500) +
+                                  TERASPACE(*YES *TSIFC) +
+                                  INCDIR('.' '../../../../base/CommonC')
+                     ENDDO
+
+             CRTCPPMOD  MODULE(PRCEDPRINT) SRCSTMF('PRCEDPrint.cpp') +
+                          STGMDL(*INHERIT) INLINE(&INLINE) +
+                          OPTIMIZE(&OPTIMIZE) DBGVIEW(&DEBUG) +
+                          MODCRTOPT(&MODCRTOPT) TGTCCSID(500) +
+                          TERASPACE(*YES *TSIFC) INCDIR('.' '../../../../base/CommonC')
+
+             IF (&UseXDNPRC) DO
+                     CRTCPPMOD  MODULE(QXDAUTIL) SRCSTMF('QxdaUTIL.cpp') +
+                                  STGMDL(*INHERIT) INLINE(&INLINE) +
+                                  OPTIMIZE(&OPTIMIZE) DBGVIEW(&DEBUG) +
+                                  MODCRTOPT(&MODCRTOPT) TGTCCSID(500) +
+                                  TERASPACE(*YES *TSIFC) +
+                                  INCDIR('.' '../../../../base/CommonC' &XDNXDAINC)
+                     ENDDO
+             ELSE DO
+                     CRTCPPMOD  MODULE(QXDAUTIL) SRCSTMF('QxdaUTIL.cpp') +
+                                  STGMDL(*INHERIT) INLINE(&INLINE) +
+                                  OPTIMIZE(&OPTIMIZE) DBGVIEW(&DEBUG) +
+                                  MODCRTOPT(&MODCRTOPT) TGTCCSID(500) +
+                                  TERASPACE(*YES *TSIFC) +
+                                  INCDIR('.' '../../../../base/CommonC')
+                     ENDDO
+
+             /*****************************************/
+             /* Binding Directory (Library) COMMONLIB */
+             /*****************************************/
+             /* Already in tools/QueryTool */
+
+             CRTCPPMOD  MODULE(QUERYTOOL) SRCSTMF('QueryTool.cpp') +
+                          STGMDL(*INHERIT) INLINE(&INLINE) +
+                          OPTIMIZE(&OPTIMIZE) DBGVIEW(&DEBUG) +
+                          MODCRTOPT(&MODCRTOPT) TGTCCSID(500) +
+                          TERASPACE(*YES *TSIFC) INCDIR('.' '../../../../base/CommonC' + 
+                                                        '../../../../base/Parser')
+
+             CRTCPPMOD  MODULE(SQLPARSER) SRCSTMF('SimpleSqlParser.cpp') +
+                          STGMDL(*INHERIT) INLINE(&INLINE) +
+                          OPTIMIZE(&OPTIMIZE) DBGVIEW(&DEBUG) +
+                          MODCRTOPT(&MODCRTOPT) TGTCCSID(500) +
+                          TERASPACE(*YES *TSIFC) INCDIR('.' '../../../../base/CommonC' '../../../../base/Parser')
+
+             CRTCPPMOD  MODULE(SQLTOKEN) SRCSTMF('SqlToken.cpp') +
+                          STGMDL(*INHERIT) INLINE(&INLINE) +
+                          OPTIMIZE(&OPTIMIZE) DBGVIEW(&DEBUG) +
+                          MODCRTOPT(&MODCRTOPT) TGTCCSID(500) +
+                          TERASPACE(*YES *TSIFC) INCDIR('.' '../../../../base/CommonC' '../../../../base/Parser')
+
+             CRTCPPMOD  MODULE(BUILDER) SRCSTMF('SelectBuilder.cpp') +
+                          STGMDL(*INHERIT) INLINE(&INLINE) +
+                          OPTIMIZE(&OPTIMIZE) DBGVIEW(&DEBUG) +
+                          MODCRTOPT(&MODCRTOPT) TGTCCSID(500) +
+                          TERASPACE(*YES *TSIFC) INCDIR('.' +
+                                                        '../../../../base/CommonC' +
+                                                        '../../../../base/Parser')
+
+             CRTCPPMOD  MODULE(UTIL) SRCSTMF('util.cpp') +
+                          STGMDL(*INHERIT) INLINE(&INLINE) +
+                          OPTIMIZE(&OPTIMIZE) DBGVIEW(&DEBUG) +
+                          MODCRTOPT(&MODCRTOPT) TGTCCSID(500) +
+                          TERASPACE(*YES *TSIFC) INCDIR('.' '../../../../base/Parser' '../../../../base/CommonC')
+
+             CRTCPPMOD  MODULE(SQLLEX) SRCSTMF('SQLLex.cpp') +
+                          STGMDL(*INHERIT) INLINE(&INLINE) +
+                          OPTIMIZE(&OPTIMIZE) DBGVIEW(&DEBUG) +
+                          MODCRTOPT(&MODCRTOPT) TGTCCSID(500) +
+                          TERASPACE(*YES *TSIFC) INCDIR('.' '../../../../base/Parser' '../../../../base/CommonC')
+            
+             CD DIR('../../../../base/Parser')
+
+             CRTCPPMOD  MODULE(LEXPARSER) SRCSTMF('LexicalParser.cpp') +
+                          STGMDL(*INHERIT) INLINE(&INLINE) +
+                          OPTIMIZE(&OPTIMIZE) DBGVIEW(&DEBUG) +
+                          MODCRTOPT(&MODCRTOPT) TGTCCSID(500) +
+                          TERASPACE(*YES *TSIFC) INCDIR('.')
+
+             /*****************************/
+             /*     Program QUERYTOOL     */
+             /*****************************/
+             CRTPGM PGM(QUERYTOOL) MODULE(QUERYTOOL SQLPARSER SQLTOKEN +
+                                          UTIL BUILDER SQLLEX LEXPARSER +
+                                          ASTHREAD LINKLIST LEVELTRACE +
+                                          HEXDUMP ITERMINAL MAINARGS +
+                                          LOADLIB EBCDIC +
+                                          PRCEDPP PRCEDPRINT QXDAUTIL)
+
+             DLTOBJ OBJ(&PGMLIB/QUERYTOOL) OBJTYPE(*MODULE)
+             DLTOBJ OBJ(&PGMLIB/SQLPARSER) OBJTYPE(*MODULE)
+             DLTOBJ OBJ(&PGMLIB/SQLTOKEN) OBJTYPE(*MODULE)
+             DLTOBJ OBJ(&PGMLIB/UTIL) OBJTYPE(*MODULE)
+             DLTOBJ OBJ(&PGMLIB/BUILDER) OBJTYPE(*MODULE)
+             DLTOBJ OBJ(&PGMLIB/SQLLEX) OBJTYPE(*MODULE)
+             DLTOBJ OBJ(&PGMLIB/LEXPARSER) OBJTYPE(*MODULE)
+             DLTOBJ OBJ(&PGMLIB/ASTHREAD) OBJTYPE(*MODULE)
+             DLTOBJ OBJ(&PGMLIB/LINKLIST) OBJTYPE(*MODULE)
+             DLTOBJ OBJ(&PGMLIB/LEVELTRACE) OBJTYPE(*MODULE)
+             DLTOBJ OBJ(&PGMLIB/HEXDUMP) OBJTYPE(*MODULE)
+             DLTOBJ OBJ(&PGMLIB/ITERMINAL) OBJTYPE(*MODULE)
+             DLTOBJ OBJ(&PGMLIB/MAINARGS) OBJTYPE(*MODULE)
+             DLTOBJ OBJ(&PGMLIB/LOADLIB) OBJTYPE(*MODULE)
+             DLTOBJ OBJ(&PGMLIB/EBCDIC) OBJTYPE(*MODULE)
+             DLTOBJ OBJ(&PGMLIB/PRCEDPP) OBJTYPE(*MODULE)
+             DLTOBJ OBJ(&PGMLIB/PRCEDPRINT) OBJTYPE(*MODULE)
+             DLTOBJ OBJ(&PGMLIB/QXDAUTIL) OBJTYPE(*MODULE)
+
+ENDPGM
