@@ -1,17 +1,15 @@
-///////////////////////////////////////////////////////////////////////////////
-//                                                                             
-// TSAR (Tools Slightly Above the Runtime)                              
-//                                                                             
-// Filename: LexicalParser.cpp
-//                                                                             
-// The source code contained herein is licensed under the MIT License,
-// which has been approved by the Open Source Initiative.         
-// Copyright (C) 2012 
-// All rights reserved.                                                
-//                    
-// Author(s) : Eric Kass 
+// LexicalParser.cpp
+/*
+ * TSAR (Tools Slightly Above the Runtime)
+ * Filename: LexicalParser.cpp
+ *
+ * Copyright (c) 2026 International Business Machines Corporation
+ * Copyright (c) 1098 Eric Kass
+ *
+ * SPDX-License-Identifier: MIT
+ */
 //
-///////////////////////////////////////////////////////////////////////////////
+
 #include <assert.h>
 #include <ctype.h>
 #include <stdio.h>
@@ -40,15 +38,15 @@ SymbolStateTableInfo::~SymbolStateTableInfo()
         return;
         }
 
-bool SymbolStateTableInfo::AddTransition(unsigned char Symbol,
+bool SymbolStateTableInfo::AddTransition(char Symbol,
                                          SymbolState_t NewState,
                                          bool Accept)
         {
         if (NumOverrides == MaxOverrides)
                 {
                 printf("ERROR: AddTransition(%u,%u) - Too many States\n",
-                        Symbol,
-                        NewState);
+                       Symbol,
+                       NewState);
                 return false;
                 }
         Overrides[NumOverrides].Symbol = Symbol;
@@ -129,11 +127,12 @@ SymbolStateMachine::~SymbolStateMachine()
         }
 
 bool SymbolStateMachine::AddTransition(SymbolState_t CurrentState,
-                                       unsigned char Symbol, 
+                                       char Symbol, 
                                        SymbolState_t NewState,
                                        bool Accept)
         {
         bool rc;
+        unsigned iSymbol = (unsigned char)Symbol;
         if (Accept && CurrentState != ST_CoreSTART)     // Accept from states
                 {                                       // other than the
                 NewState |= StateACCEPTMask;            // start state. Set
@@ -141,25 +140,24 @@ bool SymbolStateMachine::AddTransition(SymbolState_t CurrentState,
         else NewState &= StateSTATEMask;
         if (CurrentState < NumCoreStates)       // Direct state table change.
                 {
-                CoreStateTables[CurrentState][Symbol] = NewState;
+                CoreStateTables[CurrentState][iSymbol] = NewState;
                 return true;
                 }
         else if (CurrentState == ST_CoreALL)
                 {
-                CoreStateTables[ST_CoreSTART][Symbol] = StateSTATE(NewState);
-                CoreStateTables[ST_CoreSPACE][Symbol] = NewState;
-                CoreStateTables[ST_CoreCHAR][Symbol] = NewState;
-                CoreStateTables[ST_CoreDIGIT][Symbol] = NewState;
-                CoreStateTables[ST_CoreSYMBOL][Symbol] = NewState;
+                CoreStateTables[ST_CoreSTART][iSymbol] = StateSTATE(NewState);
+                CoreStateTables[ST_CoreSPACE][iSymbol] = NewState;
+                CoreStateTables[ST_CoreCHAR][iSymbol] = NewState;
+                CoreStateTables[ST_CoreDIGIT][iSymbol] = NewState;
+                CoreStateTables[ST_CoreSYMBOL][iSymbol] = NewState;
                 return true;
                 }
         else if ((unsigned)CurrentState >= NumStates)
                 {
-                printf("ERROR: AddTransition(%u,%u,%u) - " 
-                        "Too many States\n",
-                        CurrentState,
-                        Symbol,
-                        NewState);
+                printf("ERROR: AddTransition(%u,%u,%u) - Too many States\n",
+                       CurrentState,
+                       Symbol,
+                       NewState);
                 return false;
                 }
         rc = StateTables[CurrentState].AddTransition(Symbol,NewState,Accept);
@@ -189,9 +187,9 @@ void SymbolStateMachine::BuildCoreTables()
                 {
                 SymbolState_t NewState;
                 SymbolState_t CoreState;
-                if (i == 0) CoreState = ST_CoreSTART;           /*SAPUNICODEOK_LIBFCT*/
-                else if (isalpha(i)) CoreState = ST_CoreCHAR;   /*SAPUNICODEOK_LIBFCT*/ /*CCQ_ISDIGIT_OK*/
-                else if (isdigit(i)) CoreState = ST_CoreDIGIT;  /*SAPUNICODEOK_LIBFCT*/
+                if (i == 0) CoreState = ST_CoreSTART;
+                else if (isalpha(i)) CoreState = ST_CoreCHAR;
+                else if (isdigit(i)) CoreState = ST_CoreDIGIT;
                 else if (isspace(i)) CoreState = ST_CoreSPACE;
                 else CoreState = ST_CoreSYMBOL;
                 // START Table
@@ -228,11 +226,12 @@ LexicalParser::LexicalParser(SymbolStateMachine &StateMachine)
         return;
         }
 
-bool LexicalParser::_DecodeSymbol(unsigned char Symbol)
+bool LexicalParser::DecodeSymbol(char Symbol)
         {
         SymbolState_t NewState;
+        unsigned iSymbol = (unsigned char)Symbol;
         SymbolStateTableInfo *Table = Machine.GetStateTable(CurrentState);
-        if (Table->CoreDefault) NewState = Table->CoreDefault[Symbol];
+        if (Table->CoreDefault) NewState = Table->CoreDefault[iSymbol];
         else if (Symbol) NewState = Table->StateDefault;
         else NewState = ST_CoreSTART | StateACCEPTMask;
         for (unsigned i=0; i < Table->NumOverrides; i++)
@@ -256,12 +255,12 @@ bool LexicalParser::_DecodeSymbol(unsigned char Symbol)
         return true;
         }
 
-bool LexicalParser::DecodeSymbol(char SymbolU)
+bool LexicalParser::DecodeSymbol(wchar_t wSymbol)
         {
-        unsigned char Symbol;
-        if (SymbolU >> 8) Symbol = WideSubstitutionSymbol;
-        else Symbol = (unsigned char)SymbolU;
-        return _DecodeSymbol(Symbol);        
+        char Symbol;
+        if (wSymbol >> 8) Symbol = WideSubstitutionSymbol;
+        else Symbol = (char)wSymbol;
+        return DecodeSymbol(Symbol);        
         }
 
 void LexicalParser::Reset()
@@ -272,13 +271,21 @@ void LexicalParser::Reset()
         return;
         }
 
+void LexicalParser::Reset(SymbolState_t StartState)
+        {
+        Count = 0;
+        Buffer = NULL;
+        CurrentState = StartState;
+        return;
+        }
+
 void LexicalParser::SetBuffer(const void *buffer)
         {
         Buffer = buffer;                // Just passed to Onxx() for info.
         return;
         }
 
-void LexicalParser::SetWideSubstitutionSymbol(unsigned char Symbol)
+void LexicalParser::SetWideSubstitutionSymbol(char Symbol)
         {
         WideSubstitutionSymbol = Symbol;
         return;
@@ -292,7 +299,7 @@ void LexicalParser::OnAccept(SymbolState_t State,
                              const void *Buffer,
                              size_t Count)
         {
-        printf("%.*s [%u]",Count,Buffer,State);
+        printf("%.*s [%u]",(int)Count,(const char *)Buffer,State);
         return;
         }
 
@@ -304,7 +311,7 @@ LexicalStream::LexicalStream(SymbolStateMachine &Machine)
         :
         LexicalParser(Machine)
         {
-        Start(NULL,0);
+        Start((const char *)NULL,0);
         return;
         }
 
@@ -325,7 +332,7 @@ const char* LexicalStream::NextItem(LexicalItem *item)
                         {                               // terminating ('\0').
                         return Item->String; 
                         }
-                InputString++;
+                InputString += Wide ? sizeof(wchar_t) : sizeof(char);
                 InputLength--;
                 Item->Length++;
                 Continue = true;
@@ -333,7 +340,8 @@ const char* LexicalStream::NextItem(LexicalItem *item)
         while (Continue && InputLength)
                 {
                 bool Status;
-                Status = DecodeSymbol(*InputString);
+                if (!Wide) Status = DecodeSymbol(*InputString);
+                else Status = DecodeSymbol(*(wchar_t *)InputString);
                 if (!Status)
                         {
                         Item->SymbolClass = SC_Unknown;
@@ -341,7 +349,7 @@ const char* LexicalStream::NextItem(LexicalItem *item)
                         break;
                         }
                 if (!Continue) break;
-                InputString++;
+                InputString += Wide ? sizeof(wchar_t) : sizeof(char);
                 InputLength--;
                 Item->Length++;
                 }
@@ -363,13 +371,29 @@ void LexicalStream::OnAccept(SymbolState_t State, const void*, size_t)
 
 void LexicalStream::Restart(const char *Input, size_t Length)
         {
+        Wide = false;
         Continue = true;
         InputString = Input;
         InputLength = Length;
         return;
         }
 
+void LexicalStream::Restart(const wchar_t *Input, size_t Length)
+        {
+        Restart((const char *)Input,Length);
+        Wide = true;
+        return;
+        }
+
 void LexicalStream::Start(const char *Input, size_t Length)
+        {
+        Reset();
+        Item = NULL;
+        Restart(Input,Length);
+        return;
+        }
+
+void LexicalStream::Start(const wchar_t *Input, size_t Length)
         {
         Reset();
         Item = NULL;

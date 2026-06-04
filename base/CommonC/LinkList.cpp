@@ -1,17 +1,15 @@
-///////////////////////////////////////////////////////////////////////////////
-//                                                                             
-// TSAR (Tools Slightly Above the Runtime)                              
-//                                                                             
-// Filename: LinkList.cpp
-//                                                                             
-// The source code contained herein is licensed under the MIT License,
-// which has been approved by the Open Source Initiative.         
-// Copyright (C) 2012 
-// All rights reserved.                                                
-//                    
-// Author(s) : Eric Kass 
+// LinkList.C
+/*
+ * TSAR (Tools Slightly Above the Runtime)
+ * Filename: LinkList.cpp
+ *
+ * Copyright (c) 2026 International Business Machines Corporation
+ * Copyright (c) 1997 Eric Kass
+ *
+ * SPDX-License-Identifier: MIT
+ */
 //
-///////////////////////////////////////////////////////////////////////////////
+
 #include <assert.h>
 
 #include "LinkList.h"
@@ -51,6 +49,23 @@ void Link::Unlink()
 LinkList::~LinkList()
 {
 	if (AutoCleanup) ChainSaw();
+	return;
+}
+
+void LinkList::Append(LinkList &ToAppend)
+{
+        if (&ToAppend == this) return;
+        if (!ToAppend.Top) return;
+        Link *First = ToAppend.Top;
+        Link *Last = ToAppend.Bottom;
+	if (Bottom)
+		{
+		Bottom->Next = First;
+		First->Prev = Bottom;
+		}
+	Bottom = Last;
+	if (!Top) Top = First;
+        ToAppend.Top = ToAppend.Bottom = NULL;
 	return;
 }
 

@@ -1,18 +1,15 @@
-///////////////////////////////////////////////////////////////////////////////
-//                                                                             
-// TSAR (Tools Slightly Above the Runtime)                              
-//                                                                             
-// Filename: ebcdic.cpp
-//                                                                             
-// The source code contained herein is licensed under the MIT License,
-// which has been approved by the Open Source Initiative.         
-// Copyright (C) 2012 
-// All rights reserved.                                                
-//                    
-// Author(s) : Eric Kass 
+// EBCDIC to ASCII to UNICODE Conversions: ebcdic.H
+/*
+ * TSAR (Tools Slightly Above the Runtime)
+ * Filename: ebcdic.cpp
+ *
+ * Copyright (c) 2026 International Business Machines Corporation
+ * Copyright (c) 1997 Eric Kass
+ *
+ * SPDX-License-Identifier: MIT
+ */
 //
-///////////////////////////////////////////////////////////////////////////////
-/* EBCDIC to ASCII to Unicode Conversions */
+
 #ifdef __cplusplus
         #include <stdlib.h>
         #include <string.h>
@@ -160,7 +157,7 @@ void amem2umem(void *Dest, const void *Src, size_t Length)
 {
 	while (Length--)
                 {
-                *(wchar_t*)Dest = (wchar_t)*(char *)Src;
+                *(wchar_t*)Dest = (wchar_t)*(unsigned char *)Src;
                 Dest = (wchar_t *)Dest + 1;
                 Src = (char *)Src + 1;
                 }
@@ -169,7 +166,7 @@ void amem2umem(void *Dest, const void *Src, size_t Length)
 
 void astr2ustr(wchar_t *Dest, const char *Src)
 {
-	while (*Src) *Dest++ = (wchar_t)*Src++;
+	while (*Src) *Dest++ = (wchar_t)*(unsigned char *)Src++;
 	*Dest = 0;
 	return;
 }
@@ -342,6 +339,529 @@ U2A::~U2A()
         }
 
 #endif /* __cplusplus */
+
+// ***************************************************************************
+// **** Unicode <-> Unicode **************************************************
+// ***************************************************************************
+
+// ***********************
+// **** CESU8_to_UCS2 ****
+// ***********************
+
+size_t CESU8_to_UCS2(u2char_t *Dest, 
+                     size_t DestLen,
+                     const char *Source, 
+                     size_t SourceLen)
+        {
+        static const char *ProcName = "CESU8_to_UCS2";
+        size_t RequiredLen = 0;
+        while (SourceLen)
+                {
+                u2char_t DChar;
+                unsigned SChar0 = *(const unsigned char*)Source++;
+                SourceLen--;
+                if (SChar0 < 0x80) DChar = SChar0;
+                else if (SChar0 > 0xBF && SChar0 < 0xE0)
+                        {
+                        if (SourceLen < 1) 
+                                {
+                                TERROR(("%s: Improper Length",ProcName));
+                                return 0;
+                                }
+                        unsigned SChar1 = *(const unsigned char*)Source++;
+                        SourceLen--;
+                        DChar = (u2char_t)(((SChar0 & 0x1F) << 6) | 
+                                            (SChar1 & 0x3F));
+                        }
+                else    {
+                        if (SourceLen < 2) 
+                                {
+                                TERROR(("%s: Improper Length",ProcName));
+                                return 0;
+                                }
+                        unsigned SChar1 = *(const unsigned char*)Source++;
+                        unsigned SChar2 = *(const unsigned char*)Source++;
+                        SourceLen -= 2;
+                        DChar = (u2char_t)(((SChar0 & 0x0F) << 12) | 
+                                           ((SChar1 & 0x3F) << 6) | 
+                                            (SChar2 & 0x3F));
+                        }
+                RequiredLen++;
+                if (RequiredLen <= DestLen) *Dest++ = DChar;
+                }
+        return RequiredLen;
+        }
+
+// **********************
+// **** UCS2_to_CESU8 ****
+// **********************
+
+size_t UCS2_to_CESU8(char *Dest, 
+                     size_t DestLen, 
+                     const u2char_t *Source, 
+                     size_t SourceLen)
+        {
+        static const char *ProcName = "UCS2_to_CESU8";
+        size_t RequiredLen = 0;
+        while (SourceLen)
+                {
+                unsigned SChar = *(const unsigned short*)Source++;
+                SourceLen--;
+                if (SChar < 0x80) 
+                        {
+                        RequiredLen++;
+                        if (RequiredLen <= DestLen) *Dest++ = (char)SChar;
+                        }
+                else if (SChar > 0x7F && SChar < 0x800)
+                        {
+                        RequiredLen += 2;
+                        if (RequiredLen <= DestLen)
+                                {
+                                *Dest++ = (char)((SChar >> 6) | 0xC0);
+                                *Dest++ = (char)((SChar & 0x3F) | 0x80);
+                                }
+                        }
+                else    {
+                        RequiredLen += 3;
+                        if (RequiredLen <= DestLen)
+                                {
+                                *Dest++ = (char)((SChar >> 12) | 0xE0);
+                                *Dest++ = (char)(((SChar >> 6) & 0x3F) | 0x80);
+                                *Dest++ = (char)((SChar & 0x3F) | 0x80);
+                                }
+                        }
+                }
+        return RequiredLen;
+        }
+
+// ************************
+// **** UTF16_to_UTF32 ****
+// ************************
+
+size_t UTF16_to_UTF32(u4char_t *Dest, 
+                      size_t DestLen, 
+                      const u2char_t *Source, 
+                      size_t SourceLen)
+        {
+        static const char *ProcName = "UTF16_to_UTF32";
+        size_t RequiredLen = 0;
+        while (SourceLen)
+                {
+                unsigned SChar0 = *(const unsigned short*)Source++;
+                SourceLen--;
+                if (SChar0 < 0xD800 || SChar0 > 0xDFFF) 
+                        {
+                        RequiredLen++;
+                        if (RequiredLen <= DestLen)
+                                {
+                                *Dest++ = (u4char_t)SChar0;
+                                }
+                        }
+                else if (SChar0 > 0xDBFF)
+                        {
+                        TERROR(("%s: Invalid Leading: %X",ProcName,SChar0));
+                        return 0;
+                        }
+                else    {
+                        if (SourceLen < 1) 
+                                {
+                                TERROR(("%s: Improper Length",ProcName));
+                                return 0;
+                                }
+                        unsigned SChar1 = *(const unsigned short*)Source++;
+                        SourceLen--;
+                        RequiredLen++;
+                        if (RequiredLen <= DestLen)
+                                {
+                                unsigned High = (SChar0 - 0xD800) << 10;
+                                unsigned Low = (SChar1 - 0xDC00);
+                                *Dest++ = (u4char_t)((High | Low) + 0x10000);
+                                }
+                        }
+                }
+        return RequiredLen;
+        }
+
+// ************************
+// **** UTF32_to_UTF16 ****
+// ************************
+
+size_t UTF32_to_UTF16(u2char_t *Dest, 
+                      size_t DestLen, 
+                      const u4char_t *Source, 
+                      size_t SourceLen)
+        {
+        static const char *ProcName = "UTF32_to_UTF16";
+        size_t RequiredLen = 0;
+        while (SourceLen)
+                {
+                unsigned SChar = *(const unsigned*)Source++;
+                SourceLen--;
+                if (SChar < 0x10000)
+                        {
+                        RequiredLen++;
+                        if (RequiredLen <= DestLen) *Dest++ = (u2char_t)SChar;
+                        }
+                else if (SChar > 0x10FFFF)
+                        {
+                        TERROR(("%s: Invalid Character (%X)",ProcName,SChar));
+                        return 0;
+                        }
+                else    {
+                        unsigned TwentyBits = SChar - 0x10000;
+                        unsigned High = TwentyBits >> 10;
+                        unsigned Low = TwentyBits & 0x3FF;
+                        RequiredLen += 2;
+                        if (RequiredLen <= DestLen)
+                                {
+                                *Dest++ = (u2char_t)(0xD800 + High);
+                                *Dest++ = (u2char_t)(0xDC00 + Low);
+                                }
+                        }
+                }
+        return RequiredLen;
+        }
+
+// ***********************
+// **** UTF8_to_UTF32 ****
+// ***********************
+
+size_t UTF8_to_UTF32(u4char_t *Dest, 
+                     size_t DestLen,
+                     const char *Source, 
+                     size_t SourceLen)
+        {
+        static const char *ProcName = "UTF8_to_UTF32";
+        size_t RequiredLen = 0;
+        while (SourceLen)
+                {
+                u4char_t DChar;
+                unsigned SChar0 = *(const unsigned char*)Source++;
+                SourceLen--;
+                if (SChar0 < 0x80) DChar = SChar0;
+                else if (SChar0 > 0xBF && SChar0 < 0xE0)
+                        {
+                        if (SourceLen < 1) 
+                                {
+                                TERROR(("%s: Improper Length",ProcName));
+                                return 0;
+                                }
+                        unsigned SChar1 = *(const unsigned char*)Source++;
+                        SourceLen--;
+                        DChar = (u4char_t)(((SChar0 & 0x1F) << 6) | 
+                                            (SChar1 & 0x3F));
+                        }
+                else if (SChar0 > 0xDF && SChar0 < 0xF0)
+                        {
+                        if (SourceLen < 2) 
+                                {
+                                TERROR(("%s: Improper Length",ProcName));
+                                return 0;
+                                }
+                        unsigned SChar1 = *(const unsigned char*)Source++;
+                        unsigned SChar2 = *(const unsigned char*)Source++;
+                        SourceLen -= 2;
+                        DChar = (u4char_t)(((SChar0 & 0x0F) << 12) | 
+                                           ((SChar1 & 0x3F) << 6) | 
+                                            (SChar2 & 0x3F));
+                        }
+                else    {
+                        if (SourceLen < 3) 
+                                {
+                                TERROR(("%s: Improper Length",ProcName));
+                                return 0;
+                                }
+                        unsigned SChar1 = *(const unsigned char*)Source++;
+                        unsigned SChar2 = *(const unsigned char*)Source++;
+                        unsigned SChar3 = *(const unsigned char*)Source++;
+                        SourceLen -= 3;
+                        DChar = (u4char_t)(((SChar0 & 0x0F) << 18) | 
+                                           ((SChar1 & 0x3F) << 12) | 
+                                           ((SChar2 & 0x3F) << 6) | 
+                                            (SChar3 & 0x3F));
+                        }
+                RequiredLen++;
+                if (RequiredLen <= DestLen) *Dest++ = DChar;
+                }
+        return RequiredLen;
+        }
+
+// ***********************
+// **** UTF32_to_UTF8 ****
+// ***********************
+
+size_t UTF32_to_UTF8(char *Dest, 
+                     size_t DestLen, 
+                     const u4char_t *Source, 
+                     size_t SourceLen)
+        {
+        static const char *ProcName = "UTF32_to_UTF8";
+        size_t RequiredLen = 0;
+        while (SourceLen)
+               {
+               unsigned SChar = *(const unsigned*)Source++;
+               SourceLen--;
+               if (SChar < 0x80) 
+                      {
+                      RequiredLen++;
+                      if (RequiredLen <= DestLen) *Dest++ = (char)SChar;
+                      }
+               else if (SChar > 0x7F && SChar < 0x800)
+                      {
+                      RequiredLen += 2;
+                      if (RequiredLen <= DestLen)
+                              {
+                              *Dest++ = (char)((SChar >> 6) | 0xC0);
+                              *Dest++ = (char)((SChar & 0x3F) | 0x80);
+                              }
+                      }
+               else if (SChar < 0x10000)   
+                      {
+                      RequiredLen += 3;
+                      if (RequiredLen <= DestLen)
+                              {
+                              *Dest++ = (char)((SChar >> 12) | 0xE0);
+                              *Dest++ = (char)(((SChar >> 6) & 0x3F) | 0x80);
+                              *Dest++ = (char)((SChar & 0x3F) | 0x80);
+                              }
+                      }
+               else   {
+                      RequiredLen += 4;
+                      if (RequiredLen <= DestLen)
+                              {
+                              *Dest++ = (char)((SChar >> 18) | 0xF0);
+                              *Dest++ = (char)(((SChar >> 12) & 0x3F) | 0x80);
+                              *Dest++ = (char)(((SChar >> 6) & 0x3F) | 0x80);
+                              *Dest++ = (char)((SChar & 0x3F) | 0x80);
+                              }
+                      }
+               }
+        return RequiredLen;
+        }
+
+// ***********************
+// **** UTF8_to_UTF16 ****
+// ***********************
+
+size_t UTF8_to_UTF16(u2char_t *Dest, 
+                     size_t DestLen,
+                     const char *Source,
+                     size_t SourceLen)
+        {
+        static const char *ProcName = "UTF8_to_UTF16";
+        size_t RequiredLen = 0;
+        while (SourceLen)
+                {
+                unsigned SChar0 = *(const unsigned char*)Source++;
+                SourceLen--;
+                if (SChar0 < 0x80) 
+                        {
+                        RequiredLen++;
+                        if (RequiredLen <= DestLen)
+                                {
+                                *Dest++ = (u2char_t)SChar0;
+                                }
+                        }
+                else if (SChar0 > 0xBF && SChar0 < 0xE0)
+                        {
+                        if (SourceLen < 1) 
+                                {
+                                TERROR(("%s: Improper Length",ProcName));
+                                return 0;
+                                }
+                        unsigned SChar1 = *(const unsigned char*)Source++;
+                        SourceLen--;
+                        RequiredLen++;
+                        if (RequiredLen <= DestLen)
+                                {
+                                *Dest++ = (u2char_t)(((SChar0 & 0x1F) << 6) |
+                                                      (SChar1 & 0x3F));
+                                }
+                        }
+                else if (SChar0 > 0xDF && SChar0 < 0xF0)
+                        {
+                        if (SourceLen < 2) 
+                                {
+                                TERROR(("%s: Improper Length",ProcName));
+                                return 0;
+                                }
+                        unsigned SChar1 = *(const unsigned char*)Source++;
+                        unsigned SChar2 = *(const unsigned char*)Source++;
+                        SourceLen -= 2;
+                        RequiredLen++;
+                        if (RequiredLen <= DestLen)
+                                {
+                                *Dest++ = (u2char_t)(((SChar0 & 0x0F) << 12) |
+                                                     ((SChar1 & 0x3F) << 6) |
+                                                      (SChar2 & 0x3F));
+                                }
+                        }
+                else    {
+                        if (SourceLen < 3) 
+                                {
+                                TERROR(("%s: Improper Length",ProcName));
+                                return 0;
+                                }
+                        unsigned SChar1 = *(const unsigned char*)Source++;
+                        unsigned SChar2 = *(const unsigned char*)Source++;
+                        unsigned SChar3 = *(const unsigned char*)Source++;
+                        SourceLen -= 3;
+                        unsigned SChar = ((SChar0 & 0x0F) << 18) | 
+                                         ((SChar1 & 0x3F) << 12) | 
+                                          ((SChar2 & 0x3F) << 6) | 
+                                           (SChar3 & 0x3F);
+                        unsigned TwentyBits = SChar - 0x10000;
+                        unsigned High = TwentyBits >> 10;
+                        unsigned Low = TwentyBits & 0x3FF;
+                        RequiredLen += 2;
+                        if (RequiredLen <= DestLen)
+                                {
+                                *Dest++ = (u2char_t)(0xD800 + High);
+                                *Dest++ = (u2char_t)(0xDC00 + Low);
+                                }
+                        }
+                }
+        return RequiredLen;
+        }
+
+// ***********************
+// **** UTF16_to_UTF8 ****
+// ***********************
+
+size_t UTF16_to_UTF8(char *Dest, 
+                     size_t DestLen,
+                     const u2char_t *Source,
+                     size_t SourceLen)
+        {
+        static const char *ProcName = "UTF16_to_UTF8";
+        size_t RequiredLen = 0;
+        while (SourceLen)
+                {
+                unsigned SChar0 = *(const unsigned short*)Source++;
+                SourceLen--;
+                if (SChar0 < 0x80) 
+                        {
+                        RequiredLen++;
+                        if (RequiredLen <= DestLen) *Dest++ = (char)SChar0;
+                        }
+                else if (SChar0 > 0x7F && SChar0 < 0x800)
+                        {
+                        RequiredLen += 2;
+                        if (RequiredLen <= DestLen)
+                                {
+                                *Dest++ = (char)((SChar0 >> 6) | 0xC0);
+                                *Dest++ = (char)((SChar0 & 0x3F) | 0x80);
+                                }
+                        }
+                else if (SChar0 < 0xD800 || SChar0 > 0xDFFF)
+                        {
+                        RequiredLen += 3;
+                        if (RequiredLen <= DestLen)
+                                {
+                                *Dest++ = (char)((SChar0 >> 12) | 0xE0);
+                                *Dest++ = (char)(((SChar0 >> 6) & 0x3F) | 0x80);
+                                *Dest++ = (char)((SChar0 & 0x3F) | 0x80);
+                                }
+                        }
+                else    {
+                        if (SourceLen < 1) 
+                                {
+                                TERROR(("%s: Improper Length",ProcName));
+                                return 0;
+                                }
+                        unsigned SChar1 = *(const unsigned short*)Source++;
+                        SourceLen--;
+                        unsigned High = (SChar0 - 0xD800) << 10;
+                        unsigned Low = (SChar1 - 0xDC00);
+                        unsigned SChar = (High | Low) + 0x10000;
+                        RequiredLen += 4;
+                        if (RequiredLen <= DestLen)
+                                {
+                                *Dest++ = (char)((SChar >> 18) | 0xF0);
+                                *Dest++ = (char)(((SChar >> 12) & 0x3F) | 0x80);
+                                *Dest++ = (char)(((SChar >> 6) & 0x3F) | 0x80);
+                                *Dest++ = (char)((SChar & 0x3F) | 0x80);
+                                }
+                        }
+                }
+        return RequiredLen;
+        }
+
+// ***************************************************************************
+// **** WCHAR <-> UTF8 *******************************************************
+// ***************************************************************************
+
+UTF82W::UTF82W(const char *UTF8String)
+        {
+        if (!UTF8String) 
+                {
+                WCHARString = NULL;
+                return;
+                }
+        size_t Length = strlen(UTF8String);
+        WCHARString = mallocW(Length+1);
+        if (!WCHARString) throw Error_Memory("UTF82W");
+        size_t n = UTF8_to_WCHAR(WCHARString,Length,UTF8String,Length);
+        WCHARString[n] = L'\0';
+        return;
+        }
+
+UTF82W::UTF82W(const char *UTF8String, size_t Length)
+        {
+        if (!UTF8String || !Length) 
+                {
+                WCHARString = NULL;
+                return;
+                }
+        WCHARString = mallocW(Length+1);
+        if (!WCHARString) throw Error_Memory("UTF82W");
+        size_t n = UTF8_to_WCHAR(WCHARString,Length,UTF8String,Length);
+        WCHARString[n] = L'\0';
+        return;
+        }
+
+UTF82W::~UTF82W()
+        {
+        if (WCHARString) free(WCHARString);
+        return;
+        }
+
+W2UTF8::W2UTF8(const wchar_t *WCHARString)
+        {
+        if (!WCHARString) 
+                {
+                UTF8String = NULL;
+                return;
+                }
+        size_t Length = wcslen(WCHARString);
+        size_t UTF8Length = 4 * Length;
+        UTF8String = (char *)malloc(UTF8Length+1);
+        if (!UTF8String) throw Error_Memory("W2UTF8");
+        size_t n = WCHAR_to_UTF8(UTF8String,UTF8Length,WCHARString,Length);
+        UTF8String[n] = '\0';
+        return;
+        }
+
+W2UTF8::W2UTF8(const wchar_t *WCHARString, size_t Length)
+        {
+        if (!WCHARString || !Length) 
+                {
+                UTF8String = NULL;
+                return;
+                }
+        size_t UTF8Length = 4 * Length;
+        UTF8String = (char *)malloc(UTF8Length+1);
+        if (!UTF8String) throw Error_Memory("W2UTF8");
+        size_t n = WCHAR_to_UTF8(UTF8String,UTF8Length,WCHARString,Length);
+        UTF8String[n] = '\0';
+        return;
+        }
+
+W2UTF8::~W2UTF8()
+        {
+        if (UTF8String) free(UTF8String);
+        return;
+        }
 
 // ***************************************************************************
 // **************************** End of File **********************************

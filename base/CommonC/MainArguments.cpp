@@ -1,18 +1,15 @@
-///////////////////////////////////////////////////////////////////////////////
-//                                                                             
-// TSAR (Tools Slightly Above the Runtime)                              
-//                                                                             
-// Filename: MainArguments.cpp
-//                                                                             
-// The source code contained herein is licensed under the MIT License,
-// which has been approved by the Open Source Initiative.         
-// Copyright (C) 2012 
-// All rights reserved.                                                
-//                    
-// Author(s) : Eric Kass 
+// Main Parameters : MainArguments.cpp
+/*
+ * TSAR (Tools Slightly Above the Runtime)
+ * Filename: MainArguments.cpp
+ *
+ * Copyright (c) 2026 International Business Machines Corporation
+ * Copyright (c) 2004 Eric Kass
+ *
+ * SPDX-License-Identifier: MIT
+ */
 //
-///////////////////////////////////////////////////////////////////////////////
-/* Main Parameters */
+
 #include <string.h>
 
 #include <LevelTrace.h>

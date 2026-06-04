@@ -1,17 +1,15 @@
-///////////////////////////////////////////////////////////////////////////////
-//                                                                             
-// TSAR (Tools Slightly Above the Runtime)                              
-//                                                                             
-// Filename: HexDump.cpp
-//                                                                             
-// The source code contained herein is licensed under the MIT License,
-// which has been approved by the Open Source Initiative.         
-// Copyright (C) 2012 
-// All rights reserved.                                                
-//                    
-// Author(s) : Eric Kass 
+// Print HexDump: HexDump.cpp
+/*
+ * TSAR (Tools Slightly Above the Runtime)
+ * Filename: HexDump.cpp
+ *
+ * Copyright (c) 2026 International Business Machines Corporation
+ * Copyright (c) 2004 Eric Kass
+ *
+ * SPDX-License-Identifier: MIT
+ */
 //
-///////////////////////////////////////////////////////////////////////////////
+
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
@@ -25,6 +23,7 @@
 #define LINEBREAK 4
 #define LINEWIDTH 16
 #define LINETAB 4
+#define MAXZEROLINES 2
 
 #ifdef __OS400_TGTVRM__ /* iSeries */
         #define ascii2host(c) ((unsigned char)a2e(c))
@@ -73,14 +72,45 @@ void HexDump(HexDumpFunction_t PrintFn,
                 Mode = (nEBCDICChar > nASCIIChar) ? HD_EBCDIC : HD_ASCII;
                 }
         // **********************************
+        unsigned nZeroLines = 0;
         for (size_t Addr=0; Addr < Length; Addr += LINEWIDTH)
                 {
-                if (LineTab) PrintFn(UserPtr,"%*c",LineTab,' ');
-                PrintFn(UserPtr,"%4.4X    ",Addr);
+                // ******************************
+                // **** Determine Zero Line *****
+                // ******************************
                 size_t i, Count = Length - Addr;
+                bool isZeroLine = true;
+                for (i=0; i < LINEWIDTH; i++)
+                        {
+                        if (Count) 
+                                {
+                                if (Buffer[Addr+i]) isZeroLine = false;
+                                Count--;
+                                }
+                        else    {
+                                isZeroLine = false;
+                                break;
+                                }
+                        }
+                if (isZeroLine) nZeroLines++;
+                else if (nZeroLines > MAXZEROLINES)
+                        {
+                        unsigned nSkipped = nZeroLines - MAXZEROLINES;
+                        unsigned nSkippedBytes = nSkipped * LINEWIDTH;
+                        if (LineTab) PrintFn(UserPtr,"%*c",LineTab,' ');
+                        PrintFn(UserPtr,"......  ");
+                        PrintFn(UserPtr,"(Skipped 0x%X Bytes)",nSkippedBytes);
+                        PrintFn(UserPtr,"\n");
+                        nZeroLines = 0;
+                        }
+                else if (nZeroLines) nZeroLines = 0;
+                if (nZeroLines > MAXZEROLINES) continue;
                 // *******************
                 // **** Print Hex ****
                 // *******************
+                if (LineTab) PrintFn(UserPtr,"%*c",LineTab,' ');
+                PrintFn(UserPtr,"%6.6X  ",Addr);
+                Count = Length - Addr;
                 for (i=0; i < LINEWIDTH; i++)
                         {
                         if (Count) 
@@ -114,6 +144,15 @@ void HexDump(HexDumpFunction_t PrintFn,
                                 }
                         PrintFn(UserPtr,"%c",Byte);
                         }
+                PrintFn(UserPtr,"\n");
+                }
+        if (nZeroLines > MAXZEROLINES)
+                {
+                unsigned nSkipped = nZeroLines - MAXZEROLINES;
+                unsigned nSkippedBytes = nSkipped * LINEWIDTH;
+                if (LineTab) PrintFn(UserPtr,"%*c",LineTab,' ');
+                PrintFn(UserPtr,"......  ");
+                PrintFn(UserPtr,"(Skipped 0x%X Bytes)",nSkippedBytes);
                 PrintFn(UserPtr,"\n");
                 }
         return;

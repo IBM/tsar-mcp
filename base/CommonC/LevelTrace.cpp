@@ -1,17 +1,19 @@
-///////////////////////////////////////////////////////////////////////////////
-//                                                                             
-// TSAR (Tools Slightly Above the Runtime)                              
-//                                                                             
-// Filename: LevelTrace.cpp
-//                                                                             
-// The source code contained herein is licensed under the MIT License,
-// which has been approved by the Open Source Initiative.         
-// Copyright (C) 2012 
-// All rights reserved.                                                
-//                    
-// Author(s) : Eric Kass 
+// Level Trace : LevelTrace.cpp
+/*
+ * TSAR (Tools Slightly Above the Runtime)
+ * Filename: LevelTrace.cpp
+ *
+ * Copyright (c) 2026 International Business Machines Corporation
+ * Copyright (c) 2004 Eric Kass
+ *
+ * SPDX-License-Identifier: MIT
+ */
 //
-///////////////////////////////////////////////////////////////////////////////
+
+#if defined(_AIX) || defined(__OS400_TGTVRM__)
+        #pragma priority(-4200)
+#endif
+
 #ifdef _WIN32
         #include <windows.h>
 #else
@@ -26,9 +28,9 @@
         #include <qusec.h>
         #include <qmhsndpm.h>
         #include <stdarg.h>
-		#if __OS400_TGTVRM__ < 530
-		extern "C" vsnprintf(char *, size_t, const  char *, va_list);
-		#endif
+        #if __OS400_TGTVRM__ < 530
+                extern "C" vsnprintf(char *, size_t, const  char *, va_list);
+        #endif
 #endif
 
 #include <ASThread.h>
@@ -53,8 +55,6 @@
 // **** Built in Logging ****
 // **************************
 
-static unsigned MaxTraceLevel = MAXTRACELEVEL_DEFAULT;
-
 #ifdef __OS400_TGTVRM__ /* iSeries */
 
 static void WriteJoblog(const char *MSGData)
@@ -77,7 +77,6 @@ static void WriteJoblog(const char *MSGData)
 
 static void WriteLog(unsigned Level, const char *Format, va_list Args)
         {
-        if (Level > MaxTraceLevel) return;
         char Buffer[32+255+1];                  // Header + Message + NULL.
         if (Level == TRACELEVEL_ERROR) strcpy(Buffer,"ERROR: ");
         else if (Level == TRACELEVEL_INFO) strcpy(Buffer,"INFO:  ");
@@ -108,7 +107,6 @@ static void SetConsoleColor(unsigned Color)
 
 static void WriteLog(unsigned Level, const char *Format, va_list Args)
         {
-        if (Level > MaxTraceLevel) return;
         unsigned OriginalColor = GetConsoleColor();
         if (Level == TRACELEVEL_ERROR) 
                 {
@@ -156,7 +154,6 @@ static void WriteLog(unsigned Level, const char *Format, va_list Args)
 static void WriteLog(unsigned Level, const char *Format, va_list Args)
 	{
 	static enum {TT_None=0, TT_Mono, TT_Color} TermType = TT_None;
-	if (Level > MaxTraceLevel) return;
 	if (TermType == TT_None)
 		{
                 const char *TERM = getenv("TERM");
@@ -204,6 +201,8 @@ int Default_TraceLevelFunction(void *,
 // **** Set Trace Function and Level ****
 // **************************************
 
+static unsigned MaxTraceLevel = MAXTRACELEVEL_DEFAULT;
+
 static Mutex WriteLogGuard;
 
 static void *WriteLogFn_UserPtr = NULL;
@@ -217,7 +216,7 @@ unsigned GetMaxTraceLevel()
 
 void SetMaxTraceLevel(unsigned Level)
         {
-        MaxTraceLevel = Level;  // Affects Default_TraceLevelFunction only.
+        MaxTraceLevel = Level;
         return;
         }
 
@@ -250,6 +249,7 @@ void LTWriteLogPrint(const char *Format, ...)
 
 void LTWriteLogError(const char *Format, ...)
         {
+        if (TRACELEVEL_ERROR > MaxTraceLevel) return;
         va_list Args;
         va_start(Args,Format);
         WriteLogGuard.Take();
@@ -264,6 +264,7 @@ void LTWriteLogError(const char *Format, ...)
 
 void LTWriteLogInfo(const char *Format, ...)
         {
+        if (TRACELEVEL_INFO > MaxTraceLevel) return;
         va_list Args;
         va_start(Args,Format);
         WriteLogGuard.Take();
@@ -278,6 +279,7 @@ void LTWriteLogInfo(const char *Format, ...)
 
 void LTWriteLogDebug(const char *Format, ...)
         {
+        if (TRACELEVEL_DEBUG > MaxTraceLevel) return;
         va_list Args;
         va_start(Args,Format);
         WriteLogGuard.Take();

@@ -1,0 +1,178 @@
+# ============================================================================
+# MCPServer Makefile (NMAKE - Visual Studio 2022)
+# ============================================================================
+#
+# Builds each MCPServer aspect as a separate executable:
+#   MCPServer_helloWorld.exe, etc.
+#
+# Each aspect links common code + its own MCPServer_<aspect>.cpp.
+# Exactly one aspect per executable - the aspect pattern.
+#
+# Usage:
+#   nmake                       Build all aspects (Release)
+#   make helloWorld             Build MCPServer_helloWorld only
+#   nmake CFG=Debug             Build all aspects (Debug)
+#   nmake clean                 Remove build artifacts for current CFG
+#   nmake cleanall              Remove entire build directory
+#
+# Prerequisites:
+#   Run from a VS 2022 Developer Command Prompt (x86 or x64).
+#
+# Linux port notes:
+#   - Replace CC/LINK with g++, adjust CFLAGS/LDFLAGS
+#   - Change \ to / in paths, .obj to .o, .exe to empty
+#   - Replace mkdir/rmdir with mkdir -p / rm -rf
+#   - Source and object lists are reusable as-is
+#
+# ============================================================================
+
+# --- Configuration (Release or Debug) ---
+
+!IF "$(CFG)" == ""
+CFG=Release
+!ENDIF
+
+!IF "$(CFG)" != "Release" && "$(CFG)" != "Debug"
+!ERROR CFG must be Release or Debug
+!ENDIF
+
+# --- Source / Include Directories (relative from mcp\) ---
+
+COMMONC_DIR    = ..\base\CommonC
+JSONPARSER_DIR = ..\parsers\JSONParser
+PARSER_DIR     = ..\base\Parser
+MCPBASE_DIR    = base
+MCPSRV_DIR     = servers
+
+# --- Build Output ---
+
+OUTDIR = build\$(CFG)
+O      = $(OUTDIR)\obj
+
+# --- Tools ---
+
+CC   = cl.exe
+LINK = link.exe
+
+# --- Compiler Flags ---
+
+CFLAGS_BASE = /nologo /W3 /EHa \
+              /D "WIN32" /D "_CONSOLE" /D "_MBCS" /D "_USE_EXPRESSION_S" \
+              /Fd"$(O)\\" /c
+
+!IF "$(CFG)" == "Release"
+CFLAGS_CFG = /MT /O2 /Zi /D "NDEBUG"
+!ELSE
+CFLAGS_CFG = /MTd /Zi /Od /D "_DEBUG" /RTC1
+!ENDIF
+
+CFLAGS = $(CFLAGS_BASE) $(CFLAGS_CFG)
+
+# Include sets
+INC_CORE = /I "$(COMMONC_DIR)" /I "$(JSONPARSER_DIR)" /I "$(PARSER_DIR)" /I "$(MCPBASE_DIR)"
+
+# --- Linker Flags ---
+
+LIBS = kernel32.lib user32.lib advapi32.lib shell32.lib DbgHelp.lib ws2_32.lib
+
+!IF "$(CFG)" == "Release"
+LDFLAGS = /nologo /subsystem:console /debug
+!ELSE
+LDFLAGS = /nologo /subsystem:console /incremental:no /map /debug
+!ENDIF
+
+# ============================================================================
+# Object File Lists
+# ============================================================================
+
+# --- MCPServer core (always linked) ---
+
+CORE_OBJS = \
+    $(O)\MCPServer.obj \
+    $(O)\MCPServerJSON.obj
+
+# --- CommonC ---
+
+COMMONC_OBJS = \
+    $(O)\ASThread.obj \
+    $(O)\AutoString.obj \
+    $(O)\ebcdic.obj \
+    $(O)\LevelTrace.obj \
+    $(O)\LinkList.obj \
+    $(O)\MEMprintf.obj
+
+# --- JSONParser library ---
+
+JSONPARSER_OBJS = \
+    $(O)\_JSONParser.obj \
+    $(O)\JSONObject.obj \
+    $(O)\JSONParser.obj \
+    $(O)\JSONParserDetect.obj \
+    $(O)\JSONParserExp.obj \
+    $(O)\JSONParserLex.obj
+
+# --- Parser library ---
+
+PARSER_OBJS = \
+    $(O)\Expression.obj \
+    $(O)\ExpressionSN.obj \
+    $(O)\FindNode.obj \
+    $(O)\LexicalParser.obj \
+    $(O)\PrintExpression.obj
+
+# --- Combined shared objects (all aspects link these) ---
+
+SHARED_OBJS = $(CORE_OBJS) $(COMMONC_OBJS) $(JSONPARSER_OBJS) $(PARSER_OBJS)
+
+# ============================================================================
+# Targets
+# ============================================================================
+
+ASPECTS = \
+    $(OUTDIR)\MCPServer_helloWorld.exe
+
+all: _makedirs $(ASPECTS)
+
+# Named targets for individual aspects
+helloWorld:  _makedirs $(OUTDIR)\MCPServer_helloWorld.exe
+
+_makedirs:
+    @if not exist "$(O)" mkdir "$(O)"
+
+clean:
+    @if exist "$(OUTDIR)" rmdir /s /q "$(OUTDIR)"
+
+cleanall:
+    @if exist build rmdir /s /q build
+
+# ============================================================================
+# Link Rules
+# ============================================================================
+#
+# helloWorld: core + shared (no async)
+#
+
+$(OUTDIR)\MCPServer_helloWorld.exe: $(SHARED_OBJS)
+    $(LINK) $(LDFLAGS) /OUT:$@ $** $(LIBS)
+
+# ============================================================================
+# Compile Rules - Inference rules for library sources
+# ============================================================================
+
+# CommonC
+{$(COMMONC_DIR)\}.cpp{$(O)\}.obj:
+    $(CC) $(CFLAGS) /I "$(COMMONC_DIR)" /Fo$@ $<
+
+# JSONParser
+{$(JSONPARSER_DIR)\}.cpp{$(O)\}.obj:
+    $(CC) $(CFLAGS) $(INC_CORE) /Fo$@ $<
+
+# Parser
+{$(PARSER_DIR)\}.cpp{$(O)\}.obj:
+    $(CC) $(CFLAGS) /I "$(COMMONC_DIR)" /I "$(PARSER_DIR)" /Fo$@ $<
+
+# MCP base (MCPServer.cpp, MCPServerJSON.cpp)
+{$(MCPBASE_DIR)\}.cpp{$(O)\}.obj:
+    $(CC) $(CFLAGS) $(INC_CORE) /Fo$@ $<
+
+

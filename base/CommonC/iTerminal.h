@@ -1,17 +1,17 @@
-///////////////////////////////////////////////////////////////////////////////
-//                                                                             
-// TSAR (Tools Slightly Above the Runtime)                              
-//                                                                             
-// Filename: iTerminal.h
-//                                                                             
-// The source code contained herein is licensed under the MIT License,
-// which has been approved by the Open Source Initiative.         
-// Copyright (C) 2012 
-// All rights reserved.                                                
-//                    
-// Author(s) : Eric Kass 
+// Generic Terminal for iSeries: iTerminal.h
+/*
+ * TSAR (Tools Slightly Above the Runtime)
+ * Filename: iTerminal.h
+ *
+ * Copyright (c) 2026 International Business Machines Corporation
+ * Copyright (c) 2002 Eric Kass
+ *
+ * SPDX-License-Identifier: MIT
+ */
 //
-///////////////////////////////////////////////////////////////////////////////
+//      Allows spawned thread jobs to be interactive.
+//
+
 #ifndef __iSeries_Generic_Terminal
 
         #define __iSeries_Generic_Terminal

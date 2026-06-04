@@ -1,18 +1,19 @@
-///////////////////////////////////////////////////////////////////////////////
-//                                                                             
-// TSAR (Tools Slightly Above the Runtime)                              
-//                                                                             
-// Filename: ASThread.cpp
-//                                                                             
-// The source code contained herein is licensed under the MIT License,
-// which has been approved by the Open Source Initiative.         
-// Copyright (C) 2012 
-// All rights reserved.                                                
-//                    
-// Author(s) : Eric Kass 
+// Thread / Message Queue Classess: ASThread.cpp
+/*
+ * TSAR (Tools Slightly Above the Runtime)
+ * Filename: ASThread.cpp
+ *
+ * Copyright (c) 2026 International Business Machines Corporation
+ * Copyright (c) 2001 Eric Kass
+ *
+ * SPDX-License-Identifier: MIT
+ */
 //
-///////////////////////////////////////////////////////////////////////////////
-/* Thread / Message Queue Classess */
+
+volatile const char Copyright0[] = "Copyright (c) 2026 International Business Machines Corporation";
+volatile const char Copyright1[] = "Copyright (c) 1997, 2026 Eric Kass";
+
+
 #ifdef _WIN32
         #ifndef _WIN32_WINNT
                 #ifdef __BORLANDC__
@@ -27,6 +28,10 @@
         #define _OPEN_THREADS 2
 #endif
 
+#if defined(_AIX) || defined(__OS400_TGTVRM__)
+        #pragma priority(-4200)
+#endif
+
 #include <ASThread.h>
 #include <assert.h>
 #include <signal.h>
@@ -36,16 +41,19 @@
         #include <windows.h>
         #include <process.h>
 #else
+        #include <sched.h>
         #include <sys/time.h>
 #endif
 
 #ifdef __OS400_TGTVRM__
+        #include <stdio.h>
+        #include <unistd.h>
         #include <mih/cmpswp.h>
 #endif
 
 #ifdef _AIX
+        #include <unistd.h>
         #include <sys/atomic_op.h>
-        #define _CMPSWP(Comp,CS,New) compare_and_swap(CS,Comp,New)
 #endif
           
 #ifdef __MVS__
@@ -182,17 +190,16 @@ void Semaphore::Destruct()
         return;
         }
 
-#else /* Unix */
+#else /* Unix and OS400 */
 
-// *********************
-// **** UNIX: Mutex ****
-// *********************
+// ***********************
+// **** UNIX: PTMutex ****
+// ***********************
 
-Mutex::Mutex()
+PTMutex::PTMutex()
         {
         int rc;
         pthread_mutexattr_t Attributes;
-
         rc = pthread_mutexattr_init(&Attributes);
         if (rc) HandleConstructionError("Mutex-AttrInit");
                 
@@ -203,19 +210,17 @@ Mutex::Mutex()
 
         rc = pthread_mutex_init(&hMutex, &Attributes);
         if (rc) HandleConstructionError("Mutex-Init");
-
         pthread_mutexattr_destroy(&Attributes);
         return;
         }
 
-Mutex::Mutex(char *Name)
+PTMutex::PTMutex(char *Name)
         {
         int rc;
         pthread_mutexattr_t Attributes;
-
         rc = pthread_mutexattr_init(&Attributes);
         if (rc) HandleConstructionError("Mutex-AttrInit");
-                
+
   #ifdef __OS400_TGTVRM__                               /* iSeries */
         pthread_mutexattr_setname_np(&Attributes,Name);
         pthread_mutexattr_setkind_np(&Attributes,PTHREAD_MUTEX_RECURSIVE_NP);
@@ -225,12 +230,11 @@ Mutex::Mutex(char *Name)
 
         rc = pthread_mutex_init(&hMutex, &Attributes);
         if (rc) HandleConstructionError("Mutex-Init");
-
         pthread_mutexattr_destroy(&Attributes);
         return;
         }
 
-Mutex::~Mutex()
+PTMutex::~PTMutex()
         {
         pthread_mutex_destroy(&hMutex);
         return;
@@ -394,7 +398,7 @@ bool Semaphore::Take(unsigned TimeoutMS)        // Since only one interval
 // **** UNIX: Condition ****
 // *************************
 
-Condition::Condition(Mutex &conditionMutex)
+Condition::Condition(PTMutex &conditionMutex)
         :
         ConditionMutex(conditionMutex)
         {
@@ -477,9 +481,89 @@ bool PTSemaphore::Take(unsigned TimeoutMS)
         return Status;
         }
 
-#endif /* Unix */
+#endif /* Unix and OS400 */
 
-#if defined(__OS400_TGTVRM__) || defined(_AIX)
+#if defined(__OS400_TGTVRM__)
+
+// *******************************
+// **** OS400: OwnerTermMutex ****
+// *******************************
+
+OwnerTermMutex::OwnerTermMutex()
+        {
+        int rc;
+        LockDepth = 0;
+        pthread_mutexattr_t Attributes;
+        rc = pthread_mutexattr_init(&Attributes);
+        if (rc) HandleConstructionError("Mutex-AttrInit");
+        
+        pthread_mutexattr_settype(&Attributes,PTHREAD_MUTEX_OWNERTERM_NP);
+        
+        rc = pthread_mutex_init(&hMutex, &Attributes);
+        if (rc) HandleConstructionError("Mutex-Init");
+        pthread_mutexattr_destroy(&Attributes);
+        return;
+        }
+
+OwnerTermMutex::OwnerTermMutex(char *Name)
+        {
+        int rc;
+        LockDepth = 0;
+        pthread_mutexattr_t Attributes;
+        rc = pthread_mutexattr_init(&Attributes);
+        if (rc) HandleConstructionError("Mutex-AttrInit");
+
+        pthread_mutexattr_setname_np(&Attributes,Name);
+        pthread_mutexattr_settype(&Attributes,PTHREAD_MUTEX_OWNERTERM_NP);
+        pthread_mutexattr_setpshared(&Attributes,PTHREAD_PROCESS_SHARED);
+        
+        rc = pthread_mutex_init(&hMutex, &Attributes);
+        if (rc) HandleConstructionError("Mutex-Init");
+        pthread_mutexattr_destroy(&Attributes);
+        return;
+        }
+
+OwnerTermMutex::~OwnerTermMutex()
+        {
+        pthread_mutex_destroy(&hMutex);
+        return;
+        }
+
+void OwnerTermMutex::TakeRCHandler(int rc)
+        {
+        static const char *ProcName = "OwnerTermMutex::TakeRCHandler";
+        static volatile int traceNesting = 0;
+        static int retval = -666;
+        if (rc == EOWNERTERM)
+                {
+                const char *Msg = "%s: Mutex Owner Died. Ending Thread 0x%llX";
+                if (traceNesting == 0)
+                        {
+                        traceNesting++;
+                        TERROR((Msg,ProcName,GetThreadID()));
+                        traceNesting--;
+                        }
+                else fprintf(stderr,Msg,ProcName,GetThreadID());
+                pthread_exit(&retval);
+                }
+        else if (rc)
+                {
+                const char *Msg = "%s: Critical (%d). Ending Thread 0x%llX";
+                if (traceNesting == 0)
+                        {
+                        traceNesting++;
+                        TERROR((Msg,ProcName,rc,GetThreadID()));
+                        traceNesting--;
+                        }
+                else fprintf(stderr,Msg,ProcName,rc,GetThreadID());
+                pthread_exit(&retval);
+                }
+        return;
+        }
+
+#endif /* !__OS400_TGTVRM__ */
+
+#if defined(__OS400_TGTVRM__) 
 
 // ********************************
 // **** OS400: CriticalSection ****
@@ -496,10 +580,13 @@ CriticalSection::CriticalSection()
 
 void CriticalSection::Take()
         {                                       // Infinite spin-lock.
-        int IsUnlocked;                         
-        int SetLock = SPINLOCK_LOCKED;        
-        do IsUnlocked = SPINLOCK_UNLOCKED;
-        while (_CMPSWP(&IsUnlocked,&CS,SetLock) == 0);
+        int SetLock = SPINLOCK_LOCKED;
+        int IsUnlocked = SPINLOCK_UNLOCKED;
+        while (_CMPSWP(&IsUnlocked,&CS,SetLock) == 0)
+                {
+                sched_yield();
+                IsUnlocked = SPINLOCK_UNLOCKED;
+                }
         return;
         }
 
@@ -519,6 +606,43 @@ void CriticalSection::Release()
         return;
         }
 
+#elif defined(_AIX)
+
+// ******************************
+// **** AIX: CriticalSection ****
+// ******************************
+
+#define SPINLOCK_LOCKED 1
+#define SPINLOCK_UNLOCKED 0
+
+CriticalSection::CriticalSection()
+        {
+        CS = SPINLOCK_UNLOCKED;
+        return;
+        }
+
+void CriticalSection::Take()
+        {                                       // Infinite spin-lock.
+        const int SetLock = SPINLOCK_LOCKED;        
+        const int IsUnlocked = SPINLOCK_UNLOCKED;
+        while (_check_lock(&CS,IsUnlocked,SetLock)) sched_yield();
+        return;
+        }
+
+bool CriticalSection::TryTake()
+        {
+        const int SetLock = SPINLOCK_LOCKED;        
+        const int IsUnlocked = SPINLOCK_UNLOCKED;
+        return !_check_lock(&CS,IsUnlocked,SetLock);
+        }
+
+void CriticalSection::Release()
+        {
+        const int SetUnlock = SPINLOCK_UNLOCKED;
+        _clear_lock(&CS,SetUnlock);
+        return;
+        }
+        
 #elif defined(__USE_XOPEN2K) /* Unix with Spinlocks */
 
 // *******************************
@@ -551,7 +675,7 @@ void ShareLock::TakeShared()
         {
         ShareGate.Take();
         ShareCountCS.Take();
-        register unsigned nShared = ++ShareCount;
+        unsigned nShared = ++ShareCount;
         ShareCountCS.Release();
         if (nShared == 1) ExclusiveGate.Take();         // Will never wait.
         ShareGate.Release();
@@ -561,7 +685,7 @@ void ShareLock::TakeShared()
 void ShareLock::ReleaseShared()
         {
         ShareCountCS.Take();
-        register unsigned nShared = --ShareCount;
+        unsigned nShared = --ShareCount;
         ShareCountCS.Release();
         if (nShared == 0) ExclusiveGate.Release();
         return;
@@ -602,14 +726,13 @@ TLSKey_t ASThread::ASThreadKey = {0};
 
 ASThread::ASThread() : StartSemaphore(0) 
         {
-  #ifdef _WIN32
-        hThread = NULL;
-  #else
+  #ifndef _WIN32
         Detached = true;
-        memset(&hThread,0,sizeof(pthread_t));
   #endif
+        memset(&hThread,0,sizeof(hThread));
         Active = false;
         ReturnCode = 0;
+        OSThreadID = (ASThreadID_t)-1;
         if (!ASThreadKey)
                 {
                 ASThreadKey = CreateTLS();
@@ -667,6 +790,7 @@ void* ASThread::Bootstrap(void *ASThreadThis)
   #endif
 
         SetTLS(This->ASThreadKey,This);
+        This->OSThreadID = GetThreadID();
         This->StartSemaphore.Release();
 
         int rc = This->ThreadMain();
@@ -719,8 +843,8 @@ bool ASThread::Start()
 
     #ifdef _MT
 
-        HANDLE hPrivate;
         unsigned ThreadID;
+        ASThreadHANDLE_t hPrivate;
         hPrivate = (HANDLE)_beginthreadex(NULL,
                                           0,
                                           Bootstrap,
@@ -871,25 +995,37 @@ int ASThread::Wait()
         return rc;
         }
 
-bool ASThread::Kill(int ExitCode)
+bool ASThread::_Kill(int ExitCode)
         {
-        static const char *ProcName = "ASThread::Kill";
-        bool rc;
+        static const char *ProcName = "ASThread::_Kill";
         ActiveMutex.Take();
         if (!Active)
                 {
                 ActiveMutex.Release();
                 return true;
                 }
-        ReturnCode = ExitCode;
         ActiveMutex.Release();
   #ifdef _WIN32
         TERROR(("%s: Killing Thread %u Abnormally",ProcName,hThread));
-        rc = TerminateThread(hThread,ExitCode) == TRUE;
+        bool rc = TerminateThread(hThread,ExitCode) == TRUE;
   #else /* Unix */
         TERROR(("%s: Killing Thread Abnormally",ProcName));  
-        rc = pthread_cancel(hThread) == 0;
-  #endif /* Unix */          
+        bool rc = pthread_cancel(hThread) == 0;
+  #endif /* Unix */
+        ReturnCode = ExitCode;
+        return rc;
+        }
+
+bool ASThread::Kill(int ExitCode)
+        {
+        ActiveMutex.Take();
+        if (!Active)
+                {
+                ActiveMutex.Release();
+                return true;
+                }
+        ActiveMutex.Release();
+        bool rc = _Kill(ExitCode);
         Wait();
         return rc;
         }

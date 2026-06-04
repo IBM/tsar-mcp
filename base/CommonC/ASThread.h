@@ -1,17 +1,24 @@
-///////////////////////////////////////////////////////////////////////////////
-//                                                                             
-// TSAR (Tools Slightly Above the Runtime)                              
-//                                                                             
-// Filename: ASThread.h
-//                                                                             
-// The source code contained herein is licensed under the MIT License,
-// which has been approved by the Open Source Initiative.         
-// Copyright (C) 2012 
-// All rights reserved.
-//                    
-// Author(s) : Eric Kass 
-//                                                                             
-///////////////////////////////////////////////////////////////////////////////
+// Thread / Message Queue Classess: ASThread.h
+/*
+ * TSAR (Tools Slightly Above the Runtime)
+ * Filename: ASThread.h
+ *
+ * Copyright (c) 2026 International Business Machines Corporation
+ * Copyright (c) 1997 Eric Kass
+ *
+ * SPDX-License-Identifier: MIT
+ */
+//
+//      Defines: Semaphore
+//               Mutex
+//               MessageQueue
+//               ASThread
+//
+//               GetActiveThread()
+//               IsActiveThread(ASThread *Thread)
+//               GetThreadID()
+//
+
 #ifndef __Thread_Classes
 
         #define __Thread_Classes
@@ -36,6 +43,12 @@
 #include <Errors.h> 
 
 #include <LinkList.h>
+
+#ifdef _WIN32
+        typedef HANDLE ASThreadHANDLE_t;
+#else
+        typedef pthread_t ASThreadHANDLE_t;
+#endif
 
 #if defined(_WIN32)
         typedef DWORD TLSKey_t; 
@@ -144,22 +157,82 @@ inline bool Semaphore::Take(unsigned TimeoutMS)
 
 #else /* Unix */
 
-// ***************
-// **** Mutex ****
-// ***************
+// *****************
+// **** PTMutex ****
+// *****************
 
-class Mutex
+class PTMutex
         {
         private:
                 pthread_mutex_t hMutex;
                 friend class Condition;
         public:
-                Mutex(); 
-                Mutex(char *Name);
-                ~Mutex();
+                PTMutex(); 
+                PTMutex(char *Name);
+                ~PTMutex();
                 void Release() {pthread_mutex_unlock(&hMutex);}
                 void Take() {pthread_mutex_lock(&hMutex);}
         };
+
+// ************************
+// **** OwnerTermMutex ****
+// ************************
+
+#if defined(__OS400_TGTVRM__)
+
+class OwnerTermMutex                // +---------------------------------+
+        {                           // | OwnerTerm Mutex with Recursion. |
+        private:                    // +---------------------------------+
+                unsigned LockDepth;
+                pthread_mutex_t hMutex;
+                void TakeRCHandler(int rc);
+        public:
+                OwnerTermMutex();
+                OwnerTermMutex(char *Name);
+                ~OwnerTermMutex();
+                void Release();
+                void Take();
+        };
+
+inline void OwnerTermMutex::Take()
+        {
+        int rc = pthread_mutex_lock(&hMutex);
+        if (rc && rc != EDEADLK) TakeRCHandler(rc);
+        LockDepth++;
+        return;
+        }
+
+inline void OwnerTermMutex::Release() 
+        {
+        if (--LockDepth == 0) pthread_mutex_unlock(&hMutex);
+        return;
+        }
+
+#endif /* __OS400_TGTVRM__ */
+
+// ***************
+// **** Mutex ****
+// ***************
+
+#if defined(__OS400_TGTVRM__)
+
+class Mutex : public OwnerTermMutex
+        {
+        public:
+                Mutex() : OwnerTermMutex() {}
+                Mutex(char *Name) : OwnerTermMutex(Name) {}
+        };
+
+#else /* !__OS400_TGTVRM__ */
+
+class Mutex : public PTMutex
+        {
+        public:
+                Mutex() : PTMutex() {}
+                Mutex(char *Name) : PTMutex(Name) {}
+        };
+
+#endif /* !__OS400_TGTVRM__ */
 
 // *******************
 // **** Condition ****
@@ -168,10 +241,10 @@ class Mutex
 class Condition
         {
         private:
-                Mutex &ConditionMutex;
+                PTMutex &ConditionMutex;
                 pthread_cond_t hCondition;
         public:
-                Condition(Mutex &conditionMutex); 
+                Condition(PTMutex &conditionMutex); 
                 ~Condition();
                 void Release() {pthread_cond_signal(&hCondition);}
                 void Take() 
@@ -190,7 +263,7 @@ class PTSemaphore                       // PThread Semaphore
         {
         private:
                 unsigned Count;
-                Mutex SemMutex;
+                PTMutex SemMutex;
                 Condition SemCondition;
         public:
                 PTSemaphore(int InitialCount);
@@ -296,18 +369,18 @@ class ASThread
                 bool Active;
                 Mutex WaitMutex;
                 Mutex ActiveMutex;
+                ASThreadID_t OSThreadID;        // Valid by ThreadMain().
+                ASThreadHANDLE_t hThread;       // Valid after Start().
                 static TLSKey_t ASThreadKey;
+                Semaphore StartSemaphore;  
   #ifdef _WIN32
-                HANDLE hThread;
                 DWORD ReturnCode;                
                 static unsigned __stdcall Bootstrap(void *ASThreadThis);
   #else /* Unix */
                 bool Detached;
                 int ReturnCode;
-                pthread_t hThread;
                 static void* Bootstrap(void *ASThreadThis);
   #endif /* Unix */
-                Semaphore StartSemaphore;  
                 friend ASThread* GetActiveThread();
                 static void RunExitHandlers();
         protected:
@@ -316,8 +389,11 @@ class ASThread
                 ASThread();
                 virtual ~ASThread();
                 virtual const char* GetClassName() {return "ASThread";}
+                ASThreadID_t _GetOSThreadID() {return OSThreadID;}
+                ASThreadHANDLE_t _GetThreadHandle() {return hThread;}
                 bool Start(); 
-                bool Kill(int ExitCode=0);
+                bool _Kill(int ExitCode=0);             // No wait.
+                bool Kill(int ExitCode=0);              // With wait.
                 bool IsCurrentThread();
                 bool IsStarted();
                 int Wait();

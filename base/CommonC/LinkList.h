@@ -1,17 +1,16 @@
-///////////////////////////////////////////////////////////////////////////////
-//                                                                             
-// TSAR (Tools Slightly Above the Runtime)                              
-//                                                                             
-// Filename: LinkList.h
-//                                                                             
-// The source code contained herein is licensed under the MIT License,
-// which has been approved by the Open Source Initiative.         
-// Copyright (C) 2012 
-// All rights reserved.                                                
-//                    
-// Author(s) : Eric Kass 
+// LinkList.h
+/*
+ * TSAR (Tools Slightly Above the Runtime)
+ * Filename: LinkList.h
+ *
+ * Copyright (c) 2026 International Business Machines Corporation
+ * Copyright (c) 1997 Eric Kass
+ *
+ * SPDX-License-Identifier: MIT
+ */
 //
-///////////////////////////////////////////////////////////////////////////////
+//
+
 #ifndef __Link_List_Classes
 
      #define __Link_List_Classes
@@ -49,6 +48,7 @@ class LinkList
 	void AddBefore(Link *ToAdd, Link *After);
 	void AddBottom(Link *ToAdd);
 	void AddTop(Link *ToAdd);
+        void Append(LinkList &ToAppend);
 	void ChainSaw();
 	Link* GetFirst() {return Top;}
 	Link* GetNext(Link *Current) {return Current->Next;}

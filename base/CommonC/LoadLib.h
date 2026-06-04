@@ -1,17 +1,15 @@
-///////////////////////////////////////////////////////////////////////////////
-//                                                                             
-// TSAR (Tools Slightly Above the Runtime)                              
-//                                                                             
-// Filename: LoadLib.h
-//                                                                             
-// The source code contained herein is licensed under the MIT License,
-// which has been approved by the Open Source Initiative.         
-// Copyright (C) 2012 
-// All rights reserved.                                                
-//                    
-// Author(s) : Eric Kass 
+// Load Dynamic Library: LoadLib.h
+/*
+ * TSAR (Tools Slightly Above the Runtime)
+ * Filename: LoadLib.h
+ *
+ * Copyright (c) 2026 International Business Machines Corporation
+ * Copyright (c) 2003 Eric Kass
+ *
+ * SPDX-License-Identifier: MIT
+ */
 //
-///////////////////////////////////////////////////////////////////////////////
+
 #ifndef __LoadDynamicLibrary
 
         #define __LoadDynamicLibrary
@@ -24,14 +22,10 @@ const char* GetLastLoadMessage();
         #include <windows.h>
         typedef HMODULE LIBHANDLE;
         #define NOLIBHANDLE NULL
-#endif
-
-#ifdef __OS400__
+#elif defined(__OS400__)
         typedef int LIBHANDLE;
         #define NOLIBHANDLE -1
-#endif
-
-#ifdef _AIX
+#else
         typedef void* LIBHANDLE;
         #define NOLIBHANDLE NULL
 #endif

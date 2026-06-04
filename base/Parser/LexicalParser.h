@@ -1,17 +1,15 @@
-///////////////////////////////////////////////////////////////////////////////
-//                                                                             
-// TSAR (Tools Slightly Above the Runtime)                              
-//                                                                             
-// Filename: LexicalParser.h
-//                                                                             
-// The source code contained herein is licensed under the MIT License,
-// which has been approved by the Open Source Initiative.         
-// Copyright (C) 2012 
-// All rights reserved.                                                
-//                    
-// Author(s) : Eric Kass 
+// LexicalParser.h
+/*
+ * TSAR (Tools Slightly Above the Runtime)
+ * Filename: LexicalParser.h
+ *
+ * Copyright (c) 2026 International Business Machines Corporation
+ * Copyright (c) 1098 Eric Kass
+ *
+ * SPDX-License-Identifier: MIT
+ */
 //
-///////////////////////////////////////////////////////////////////////////////
+
 #ifndef __Lexical_Parser
 
         #define __Lexical_Parser
@@ -39,7 +37,7 @@ typedef unsigned char SymbolState_t;
 #define StateACCEPT(State) ((SymbolState_t)((State) & StateACCEPTMask))
 #define StateSTATE(State) ((SymbolState_t)((State) & StateSTATEMask))
 
-#define WideSubstitutionSYMBOL '_'  // Default for Unicode -> char.
+#define WideSubstitutionSYMBOL '_'      // Default for wchar_t -> char.
 
 // ****************************************************************************
 // **** Symbol State Table ****************************************************
@@ -47,7 +45,7 @@ typedef unsigned char SymbolState_t;
 
 struct TransitionOverride_t
         {
-        unsigned char Symbol;
+        char Symbol;
         SymbolState_t NewState;
         };
 
@@ -62,9 +60,7 @@ struct SymbolStateTableInfo
         ~SymbolStateTableInfo();
         bool AssignStateDefault(SymbolState_t Default, size_t nOverrides);
         bool AssignStateTable(SymbolState_t *Core, size_t nOverrides);
-        bool AddTransition(unsigned char Symbol, 
-                           SymbolState_t NewState,
-                           bool Accept);
+        bool AddTransition(char Symbol, SymbolState_t NewState, bool Accept);
         };
 
 // ****************************************************************************
@@ -89,7 +85,7 @@ class SymbolStateMachine
                                       SymbolState_t CoreDefault,
                                       size_t nOverrides);
                 bool AddTransition(SymbolState_t CurrentState,
-                                   unsigned char Symbol,
+                                   char Symbol,
                                    SymbolState_t NewState,
                                    bool Accept);
                 SymbolStateTableInfo *GetStateTable(unsigned State)
@@ -108,21 +104,21 @@ class LexicalParser
                 size_t Count;
                 const void *Buffer;
                 SymbolState_t CurrentState;
-                unsigned char WideSubstitutionSymbol;
+                char WideSubstitutionSymbol;
         protected:
                 SymbolStateMachine &Machine;
-                bool _DecodeSymbol(unsigned char Symbol);
                 virtual void OnAccept(SymbolState_t State,
                                       const void *Buffer,
                                       size_t Count);
         public:
                 LexicalParser(SymbolStateMachine &Machine);
-                
                 bool DecodeSymbol(char Symbol);
+                bool DecodeSymbol(wchar_t wSymbol);
                 SymbolState_t GetCurrentState() {return CurrentState;}
                 void Reset();
+                void Reset(SymbolState_t StartState);
                 void SetBuffer(const void *Buffer);
-                void SetWideSubstitutionSymbol(unsigned char Symbol);
+                void SetWideSubstitutionSymbol(char Symbol);
         };
 
 // ****************************************************************************
@@ -139,13 +135,14 @@ struct LexicalItem
         {
         SymbolClass_t SymbolClass;
         SymbolState_t SymbolID;
-        const char *String;           // Begining position in input stream.
+        const char *String;             // Begining position in input stream.
         size_t Length;                  // Length of String.
         };
 
 class LexicalStream : public LexicalParser
         {
         protected:
+                bool Wide;
                 bool Continue;
                 LexicalItem *Item;
                 size_t InputLength;
@@ -157,7 +154,9 @@ class LexicalStream : public LexicalParser
                 LexicalStream(SymbolStateMachine &Machine);
                 const char* NextItem(LexicalItem *Item);
                 void Restart(const char *Input, size_t Length);
+                void Restart(const wchar_t *Input, size_t Length);
                 void Start(const char *Input, size_t Length);
+                void Start(const wchar_t *Input, size_t Length);
         };
 
 /* **************************************************************************
@@ -330,7 +329,7 @@ class LexicalStream : public LexicalParser
                                         rejected. Use GetCurrentState() to
                                         determine the current machine state.
 
-                                        UNICODE:
+                           - DecodeSymbol(wchar_t Symbol)
 
                                         Uses the low-order portion of the
                                         symbol. If the symbol contains a
@@ -346,6 +345,12 @@ class LexicalStream : public LexicalParser
 
                                         Reset the machine to parse new input.
 
+                           - Reset(SymbolState_t StartState)
+
+                                        Set or Reset the machine to parse new 
+                                        input using 'StartState' instead of
+                                        ST_CoreSTART.
+
                            - SetBuffer(const void *buffer)
 
                                         Assign a 'Buffer' to be passed back
@@ -355,7 +360,7 @@ class LexicalStream : public LexicalParser
                            - SetWideSubstitutionSymbol(char Symbol)
 
                                         Character to use for decoding
-                                        decisions when DecodeSymbol()
+                                        decisions when DecodeSymbol(wchar_t)
                                         detects input with a high-order
                                         portion not equal to zero.
 
@@ -440,7 +445,20 @@ class LexicalStream : public LexicalParser
                                         Item.String = "=="
                                         Item.Length = 2
 
+                                If the input is UNICODE (i.e. Start() for
+                                wchar_t input was called), then both the
+                                return of Next() and 'Item->String' can
+                                be cast to (wchar_t*).
+
+                           - Reset(SymbolState_t StartState)  [LexicalParser]
+
+                                        Start parsing at 'StartState' instead
+                                        of ST_CoreSTART. It is only valid
+                                        to call this immediately after
+                                        calling Start(..).
+
                            - Restart(const char *Input, size_t Length)
+                           - Restart(const wchar_t *Input, size_t Length)
 
                                  Set continuation of the input stream. Call
                                  when NextItem() returns NULL, and more
@@ -458,16 +476,24 @@ class LexicalStream : public LexicalParser
                                  Set beginining of an character or wide
                                  character input stream and prepares the
                                  state machine for new input.
+
+                           - Start(const wchar_t *Input, size_t Length)
+
+                                 Set beginining of a UNICODE input stream and
+                                 prepares the state machine for new input.
+
+                                 Following calls to NextItem() assume the
+                                 input is UNICODE (see DecodeSymbol() above).
                                  
  ****************************************************************************
  **** Example ***************************************************************
  *************
 
- ****************************************************************************
- **** C++ Lexical Parser ****************************************************
+
  ****************************************************************************
 
 #include <stdio.h>
+#include <string.h>
 #include <LexicalParser.h>
  
 class CPPSymbolStateMachine : public SymbolStateMachine
@@ -476,12 +502,11 @@ class CPPSymbolStateMachine : public SymbolStateMachine
                 CPPSymbolStateMachine();
         };
 
-
 // ******************************************************************
 // **** C++ Lexical States ******************************************
 // ******************************************************************
 
-#define CPPNumUserStates 44
+#define CPPNumUserStates 51
 
 #define ST_Underscore                   ST_CoreCHAR
 #define ST_Colon                        (FirstUserState+0)
@@ -502,46 +527,60 @@ class CPPSymbolStateMachine : public SymbolStateMachine
 #define ST_SlashMultiply                (FirstUserState+15)
 #define ST_Multiply                     (FirstUserState+16)
 #define ST_MultiplyEqual                (FirstUserState+17)
-#define ST_Equal                        (FirstUserState+18)
-#define ST_EqualEqual                   (FirstUserState+19)
-#define ST_Bang                         (FirstUserState+20)
-#define ST_BangEqual                    (FirstUserState+21)
-#define ST_Or                           (FirstUserState+22)
-#define ST_OrOr                         (FirstUserState+23)
-#define ST_OrEqual                      (FirstUserState+24)
-#define ST_And                          (FirstUserState+25)
-#define ST_AndAnd                       (FirstUserState+26)
-#define ST_AndEqual                     (FirstUserState+27)
-#define ST_Percent                      (FirstUserState+28)
-#define ST_PercentEqual                 (FirstUserState+29)
-#define ST_Caret                        (FirstUserState+30)
-#define ST_CaretEqual                   (FirstUserState+31)
-#define ST_Less                         (FirstUserState+32)
-#define ST_LessEqual                    (FirstUserState+33)
-#define ST_Greater                      (FirstUserState+34)
-#define ST_GreaterEqual                 (FirstUserState+35)
-#define ST_BackSlash                    (FirstUserState+36)
-#define ST_BackSlashBackSlash           (FirstUserState+37)
-#define ST_Quote                        (FirstUserState+38)
-#define ST_DoubleQuote                  (FirstUserState+39)
+#define ST_MultiplySlash                (FirstUserState+18)
+#define ST_Equal                        (FirstUserState+19)
+#define ST_EqualEqual                   (FirstUserState+20)
+#define ST_Bang                         (FirstUserState+21)
+#define ST_BangEqual                    (FirstUserState+22)
+#define ST_Or                           (FirstUserState+23)
+#define ST_OrOr                         (FirstUserState+24)
+#define ST_OrEqual                      (FirstUserState+25)
+#define ST_And                          (FirstUserState+26)
+#define ST_AndAnd                       (FirstUserState+27)
+#define ST_AndEqual                     (FirstUserState+28)
+#define ST_Percent                      (FirstUserState+29)
+#define ST_PercentEqual                 (FirstUserState+30)
+#define ST_Caret                        (FirstUserState+31)
+#define ST_CaretEqual                   (FirstUserState+32)
+#define ST_Less                         (FirstUserState+33)
+#define ST_LessEqual                    (FirstUserState+34)
+#define ST_Greater                      (FirstUserState+35)
+#define ST_GreaterEqual                 (FirstUserState+36)
+#define ST_BackSlash                    (FirstUserState+37)
+#define ST_BackSlashBackSlash           (FirstUserState+38)
+#define ST_Quote                        (FirstUserState+39)
+#define ST_DoubleQuote                  (FirstUserState+40)
+#define ST_Comma                        (FirstUserState+41)
+#define ST_ParenOpen                    (FirstUserState+42)
+#define ST_ParenClose                   (FirstUserState+43)
+#define ST_QuestionMark                 (FirstUserState+44)
 
 // **************************
 // **** Numeric Literals ****
 // **************************
 
-#define ST_Zero                         (FirstUserState+40)
-#define ST_Hex                          (FirstUserState+41)
-#define ST_Octal                        (FirstUserState+42)
+#define ST_Zero                         (FirstUserState+44)
+#define ST_Hex                          (FirstUserState+45)
+#define ST_Octal                        (FirstUserState+46)
 
 // ****************************************
 // **** Strings, Literals and Comments ****
 // ****************************************
 
-#define ST_Literal                      ST_Quote
-#define ST_String                       ST_DoubleQuote
-#define ST_Comment                      ST_SlashMultiply
-#define ST_CommentEnd                   (FirstUserState+43)
+#define ST_InLiteral                    ST_Quote
+#define ST_Literal                      (FirstUserState+47)
+#define ST_InString                     ST_DoubleQuote
+#define ST_String                       (FirstUserState+48)
 #define ST_LineComment                  ST_SlashSlash
+#define ST_InComment                    ST_SlashMultiply
+#define ST_CommentEnd                   ST_MultiplySlash
+#define ST_Comment                      (FirstUserState+49)
+
+// ************************
+// **** Floating point ****
+// ************************
+
+#define ST_Exponent                     (FirstUserState+50)
 
 // ******************************************************************
 // **** C++ Lexical Stream ******************************************
@@ -563,12 +602,12 @@ CPPSymbolStateMachine::CPPSymbolStateMachine()
         AddTransition(ST_CoreALL,':',ST_Colon,true);                    // :
         AddTransition(ST_Colon,':',ST_DoubleColon,false);               // ::
         // Period
-        AssignStateTable(ST_Period,ST_CoreSYMBOL,1);
+        AssignStateTable(ST_Period,ST_CoreSYMBOL,11);   // pointer, float
         AssignStateTable(ST_PeriodMultiply,ST_CoreSYMBOL,0);
         AddTransition(ST_CoreALL,'.',ST_Period,true);                   // .
         AddTransition(ST_Period,'*',ST_PeriodMultiply,false);           // .*
         // Minus
-        AssignStateTable(ST_Minus,ST_CoreSYMBOL,13);    // 13: op + negitive
+        AssignStateTable(ST_Minus,ST_CoreSYMBOL,3);                     // op
         AssignStateTable(ST_MinusMinus,ST_CoreSYMBOL,0);
         AssignStateTable(ST_MinusEqual,ST_CoreSYMBOL,0);
         AssignStateTable(ST_MinusGreater,ST_CoreSYMBOL,1);
@@ -661,11 +700,13 @@ CPPSymbolStateMachine::CPPSymbolStateMachine()
         AssignStateTable(ST_String,ST_CoreSYMBOL,0);
         AddTransition(ST_CoreALL,'"',ST_InString,true);
         AddTransition(ST_InString,'"',ST_String,false);
-        // Negitive numbers
-        for (c='0';c<='9';c++) AddTransition(ST_Minus,c,ST_CoreDIGIT,false);
         // Floating point numbers
+        AssignStateTable(ST_Exponent,ST_CoreDIGIT,2);
+        for (c='0';c<='9';c++) AddTransition(ST_Period,c,ST_CoreDIGIT,false);
         AddTransition(ST_CoreDIGIT,'.',ST_CoreDIGIT,false);
-        AddTransition(ST_CoreDIGIT,'E',ST_CoreDIGIT,false);
+        AddTransition(ST_CoreDIGIT,'E',ST_Exponent,false);
+        AddTransition(ST_Exponent,'+',ST_CoreDIGIT,false);
+        AddTransition(ST_Exponent,'-',ST_CoreDIGIT,false);
         // Tokens with Digits
         for (c='0';c<='9';c++) AddTransition(ST_CoreCHAR,c,ST_CoreCHAR,false);
         // Decimal, Hex, and Octal Literals
@@ -707,33 +748,25 @@ main()
         LexicalStream Lex(StateMachine);
         const char* Pos = "void Test(int x, char y);";
         Lex.Start(Pos,strlen(Pos)+1);
-        while (Pos)
+        while (*Pos)
                 {
                 LexicalItem Item;
                 Pos = Lex.NextItem(&Item);
-                if (Pos)
+                if (!Pos)
                         {
-                        switch (Item.SymbolClass)
-                                {
-                                case SC_Space:
-                                        printf("Space: ");
-                                        break;
-                                case SC_Token:
-                                        printf("Token: ");
-                                        break;
-                                case SC_Number:
-                                        printf("Number: ");
-                                        break;
-                                case SC_Symbol:
-                                        printf("Symbol: ");
-                                        break;
-                                default:
-                                        printf("Other: ");
-                                        break;
-                                }
-                        printf("[%u]: ",Item.SymbolID);
-                        printf("%.*s\n",Item.Length,Item.String);
+                        printf("ERROR: Unexpected End of String\n");
+                        return 1;
                         }
+                switch (Item.SymbolClass)
+                        {
+                        case SC_Space:  printf("Space:  "); break;
+                        case SC_Token:  printf("Token:  "); break;
+                        case SC_Number: printf("Number: "); break;
+                        case SC_Symbol: printf("Symbol: "); break;
+                        default:        printf("Other:  "); break;
+                        }
+                printf("[%u]: ",Item.SymbolID);
+                printf("'%.*s'\n",Item.Length,Item.String);
                 }
         return 0;
         }

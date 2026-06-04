@@ -1,28 +1,26 @@
-///////////////////////////////////////////////////////////////////////////////
-//                                                                             
-// TSAR (Tools Slightly Above the Runtime)                              
-//                                                                             
-// Filename: Errors.h
-//                                                                             
-// The source code contained herein is licensed under the MIT License,
-// which has been approved by the Open Source Initiative.         
-// Copyright (C) 2012 
-// All rights reserved.                                                
-//                    
-// Author(s) : Eric Kass 
+// Error Classes
+/*
+ * TSAR (Tools Slightly Above the Runtime)
+ * Filename: Errors.h
+ *
+ * Copyright (c) 2026 International Business Machines Corporation
+ * Copyright (c) 1997 Eric Kass
+ *
+ * SPDX-License-Identifier: MIT
+ */
 //
-///////////////////////////////////////////////////////////////////////////////
+
 #ifndef __Error_Classes
 
      #define __Error_Classes
 
-class Error
+class ErrorBase
 	{
 	private:
 		const char *ErrorText;
 	public: 
-                Error() {ErrorText = "";}
-		Error(const char *errorText) 
+                ErrorBase() {ErrorText = "";}
+		ErrorBase(const char *errorText) 
                         {
                         ErrorText = errorText;
                         }
@@ -30,42 +28,42 @@ class Error
                 const char* GetText() {return ErrorText;}
 	};
 
-class Error_Memory : public Error
+class Error_Memory : public ErrorBase
         {
         public:
-                Error_Memory() : Error() {};
-                Error_Memory(const char *errorText) : Error(errorText) {}
+                Error_Memory() : ErrorBase() {};
+                Error_Memory(const char *errorText) : ErrorBase(errorText) {}
         };
 
-class Error_InOp : public Error 		// Invalid Operation.
+class Error_InOp : public ErrorBase 		// Invalid Operation.
         {
         public:
-                Error_InOp() : Error() {};
-                Error_InOp(const char *errorText) : Error(errorText) {}
+                Error_InOp() : ErrorBase() {};
+                Error_InOp(const char *errorText) : ErrorBase(errorText) {}
         };
 
-class Error_Construction : public Error 
+class Error_Construction : public ErrorBase 
 	{
         protected:
-                Error_Construction() : Error() {}
+                Error_Construction() : ErrorBase() {}
 	public: 
-                Error_Construction(const char *className) : Error(className)
+                Error_Construction(const char *className) : ErrorBase(className)
                         {
                         };
                 const char* GetClassName() {return GetErrorText();}
 	};
 
-class Error_Syntax : public Error
+class Error_Syntax : public ErrorBase
         {
         public:
-                Error_Syntax() : Error() {};
-                Error_Syntax(const char *errorText) : Error(errorText) {}
+                Error_Syntax() : ErrorBase() {};
+                Error_Syntax(const char *errorText) : ErrorBase(errorText) {}
         };
 
-class Error_Grammar : public Error
+class Error_Grammar : public ErrorBase
         {
         public:
-                Error_Grammar(const char *errorText) : Error(errorText) {}
+                Error_Grammar(const char *errorText) : ErrorBase(errorText) {}
         };
 
 #endif
