@@ -32,7 +32,7 @@ TSAR-MCP leverages a battle-tested, clean-room C runtime and parsing engine to h
 
 This repository includes the core framework alongside simple target-specific MCP server implementations to demonstrate the extensibility of the architecture:
 
-* **Hello World (`helloWorld`):** A basic implementation that demonstrates how to bind standard I/O to the native JSON-RPC parsing engine.
+* **Hello World & Port Scan (`helloWorld`, `portScan`):** Basic implementations that demonstrate how to bind standard I/O to the native JSON-RPC parsing engine, and how to interact sequentially with local network sockets.
 
 **Enterprise Roadmap:** Because the framework compiles to a highly efficient native binary, future milestones will introduce heavy-duty enterprise aspects. This includes modules like **SAP Control (`sapControl`)**, which will allow LLMs to monitor processes and edit profiles across an SAP landscape using native commands, entirely eliminating the need for heavy SOAP gateways or third-party agents.
 

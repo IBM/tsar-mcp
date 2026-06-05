@@ -101,6 +101,10 @@ COMMONC_OBJS = \
     $(O)\LinkList.obj \
     $(O)\MEMprintf.obj
 
+COMMONC_NET_OBJS = \
+    $(O)\IPv6Parse.obj \
+    $(O)\SocketCB.obj
+
 # --- JSONParser library ---
 
 JSONPARSER_OBJS = \
@@ -129,12 +133,14 @@ SHARED_OBJS = $(CORE_OBJS) $(COMMONC_OBJS) $(JSONPARSER_OBJS) $(PARSER_OBJS)
 # ============================================================================
 
 ASPECTS = \
-    $(OUTDIR)\MCPServer_helloWorld.exe
+    $(OUTDIR)\MCPServer_helloWorld.exe \
+    $(OUTDIR)\MCPServer_portScan.exe
 
 all: _makedirs $(ASPECTS)
 
 # Named targets for individual aspects
 helloWorld:  _makedirs $(OUTDIR)\MCPServer_helloWorld.exe
+portScan:    _makedirs $(OUTDIR)\MCPServer_portScan.exe
 
 _makedirs:
     @if not exist "$(O)" mkdir "$(O)"
@@ -153,6 +159,13 @@ cleanall:
 #
 
 $(OUTDIR)\MCPServer_helloWorld.exe: $(SHARED_OBJS) $(O)\MCPServer_helloWorld.obj
+    $(LINK) $(LDFLAGS) /OUT:$@ $** $(LIBS)
+
+#
+# portScan: core + shared + sockets
+#
+
+$(OUTDIR)\MCPServer_portScan.exe: $(SHARED_OBJS) $(COMMONC_NET_OBJS) $(O)\MCPServer_portScan.obj
     $(LINK) $(LDFLAGS) /OUT:$@ $** $(LIBS)
 
 # ============================================================================
@@ -177,6 +190,10 @@ $(OUTDIR)\MCPServer_helloWorld.exe: $(SHARED_OBJS) $(O)\MCPServer_helloWorld.obj
 
 # MCP servers - helloWorld
 {$(MCPSRV_DIR)\helloWorld\}.cpp{$(O)\}.obj:
+    $(CC) $(CFLAGS) $(INC_CORE) /Fo$@ $<
+
+# MCP servers - portScan
+{$(MCPSRV_DIR)\portScan\}.cpp{$(O)\}.obj:
     $(CC) $(CFLAGS) $(INC_CORE) /Fo$@ $<
 
 

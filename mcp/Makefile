@@ -73,6 +73,10 @@ COMMONC_OBJS = \
     $(O)/LinkList.o \
     $(O)/MEMprintf.o
 
+COMMONC_NET_OBJS = \
+    $(O)/IPv6Parse.o \
+    $(O)/SocketCB.o
+
 JSONPARSER_OBJS = \
     $(O)/_JSONParser.o \
     $(O)/JSONObject.o \
@@ -95,13 +99,15 @@ SHARED_OBJS = $(CORE_OBJS) $(COMMONC_OBJS) $(JSONPARSER_OBJS) $(PARSER_OBJS)
 # ============================================================================
 
 ASPECTS = \
-    $(OUTDIR)/MCPServer_helloWorld
+    $(OUTDIR)/MCPServer_helloWorld \
+    $(OUTDIR)/MCPServer_portScan
 
-.PHONY: all clean cleanall _makedirs helloWorld
+.PHONY: all clean cleanall _makedirs helloWorld portScan
 
 all: _makedirs $(ASPECTS)
 
 helloWorld:  _makedirs $(OUTDIR)/MCPServer_helloWorld
+portScan:    _makedirs $(OUTDIR)/MCPServer_portScan
 
 _makedirs:
 	@mkdir -p $(O)
@@ -117,6 +123,9 @@ cleanall:
 # ============================================================================
 
 $(OUTDIR)/MCPServer_helloWorld: $(SHARED_OBJS) $(O)/MCPServer_helloWorld.o
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LIBS)
+
+$(OUTDIR)/MCPServer_portScan: $(SHARED_OBJS) $(COMMONC_NET_OBJS) $(O)/MCPServer_portScan.o
 	$(CXX) $(LDFLAGS) $^ -o $@ $(LIBS)
 
 # ============================================================================
@@ -141,5 +150,9 @@ $(O)/%.o: $(MCPBASE_DIR)/%.cpp
 
 # MCP servers - helloWorld
 $(O)/%.o: $(MCPSRV_DIR)/helloWorld/%.cpp
+	$(CXX) $(CXXFLAGS) $(INC_CORE) -c $< -o $@
+
+# MCP servers - portScan
+$(O)/%.o: $(MCPSRV_DIR)/portScan/%.cpp
 	$(CXX) $(CXXFLAGS) $(INC_CORE) -c $< -o $@
 
