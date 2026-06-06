@@ -1,4 +1,6 @@
-> 🚧 **WORK IN PROGRESS:** This repository is currently undergoing initial construction and migration. The core architecture is defined below, and the foundational C runtime and parsing engines are actively being staged. 
+<p align="center">
+  <img src="docs/assets/tsar-banner.png" width="750" alt="TSAR-MCP Cliff Edge AI Banner">
+</p>
 
 # TSAR-MCP: Zero-Dependency C Framework for Edge AI
 
@@ -8,7 +10,7 @@ While the majority of the AI agent ecosystem relies on heavy runtime environment
 
 ## 🗺️ Exploring this Repository (Learning Path)
 
-This repository is structured as a chronological masterclass in building a zero-dependency C-runtime. Because the `main` branch contains advanced asynchronous and threading models, **we highly recommend exploring our milestone tags chronologically to understand the core architecture:**
+This repository is structured as a chronological masterclass in building zero-dependency C-runtime based MCP servers. Because the `main` branch contains advanced asynchronous and threading models, **we highly recommend exploring our milestone tags chronologically to understand the core architecture:**
 
 1. **Tag: `mcp/teaching/v1.0.0`** - The zero-dependency sequential MCP baseline.
 2. **Tag: `mcp/aspects/v1.1.0`** - Introduces the simple, production-ready aspect model. **Check out this teaching version to understand the essence of how aspects are built and wired.**
@@ -26,7 +28,7 @@ TSAR-MCP leverages a battle-tested, clean-room C runtime and parsing engine to h
 
 * **Zero-Dependency Transport:** Communicates securely with LLM clients via `ssh -batch`. No sockets, no open web ports, and no custom network code—just OS-level encrypted `stdin/stdout` streams.
 * **The `CommonC` Foundation:** A robust, legacy-hardened C runtime handling memory management and string operations without external library bloat.
-* **Native BNF Parsing:** High-performance, compiled parsing engines (`JSONParser`, `MLparser`) that process LLM payloads with extreme speed and safety.
+* **Native BNF Parsing:** High-performance, compiled parsing engine (`JSONParser`) that process LLM payloads with extreme speed and safety.
 
 ## Included Examples & Roadmap
 
@@ -35,9 +37,6 @@ This repository includes the core framework alongside simple target-specific MCP
 * **Hello World & Port Scan (`helloWorld`, `portScan`):** Basic implementations that demonstrate how to bind standard I/O to the native JSON-RPC parsing engine, and how to interact sequentially with local network sockets.
 
 **Enterprise Roadmap:** Because the framework compiles to a highly efficient native binary, future milestones will introduce heavy-duty enterprise aspects. This includes modules like **SAP Control (`sapControl`)**, which will allow LLMs to monitor processes and edit profiles across an SAP landscape using native commands, entirely eliminating the need for heavy SOAP gateways or third-party agents.
-
-## Getting Started
-
 
 ## Getting Started
 
