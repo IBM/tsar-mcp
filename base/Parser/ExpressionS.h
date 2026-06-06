@@ -174,7 +174,7 @@ inline inputT Node::GetValue()
 // **********************
 
 #define DefineNodesBEGIN                                                     \
-        extern NodeInfo ExNAMESPACE(NodeInfoTable)[] =                       \
+        NodeInfo ExNAMESPACE(NodeInfoTable)[] =                              \
                 {                                                            \
                 DefineTerminalNode(ExU("Undefined"),UndefinedNodeType)       \
                 DefineTerminalNode(ExU("Terminal"),TerminalNodeType)

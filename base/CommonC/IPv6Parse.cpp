@@ -83,7 +83,8 @@ static bool ParseIPv6(IPv6Words_t Words, unsigned *Port, const char *Src)
                         else if (jByte) 
                                 {
                                 if (iWord == 8) return false;
-                                Words[iWord++] = (Words[iWord] << 8) + dWord;
+                                Words[iWord] = (Words[iWord] << 8) + dWord;
+                                iWord++;
                                 jByte = 0;
                                 }
                         else if (c == DecGROUPSeperator)
@@ -120,7 +121,11 @@ static bool ParseIPv6(IPv6Words_t Words, unsigned *Port, const char *Src)
                 }
         if (WaitingForPort && Port) *Port = dWord; 
         else if (iWord == 8) return false;
-        else if (jByte) Words[iWord++] = (Words[iWord] << 8) + dWord;
+        else if (jByte) 
+                {
+                Words[iWord] = (Words[iWord] << 8) + dWord; 
+                iWord++; 
+                }
         else Words[iWord++] = hWord;
         for (unsigned i=0; i < 8 - iZeroSpan; i++)
                 {

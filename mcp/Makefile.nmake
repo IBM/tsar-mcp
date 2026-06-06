@@ -99,11 +99,15 @@ COMMONC_OBJS = \
     $(O)\ebcdic.obj \
     $(O)\LevelTrace.obj \
     $(O)\LinkList.obj \
-    $(O)\MEMprintf.obj
+    $(O)\MEMprintf.obj \
+    $(O)\SnapStack.obj
 
 COMMONC_NET_OBJS = \
     $(O)\IPv6Parse.obj \
     $(O)\SocketCB.obj
+
+COMMONC_TIMER_OBJS = \
+    $(O)\TimerThread.obj
 
 # --- JSONParser library ---
 
@@ -134,13 +138,15 @@ SHARED_OBJS = $(CORE_OBJS) $(COMMONC_OBJS) $(JSONPARSER_OBJS) $(PARSER_OBJS)
 
 ASPECTS = \
     $(OUTDIR)\MCPServer_helloWorld.exe \
-    $(OUTDIR)\MCPServer_portScan.exe
+    $(OUTDIR)\MCPServer_portScan.exe \
+    $(OUTDIR)\MCPServer_setReminder.exe
 
 all: _makedirs $(ASPECTS)
 
 # Named targets for individual aspects
-helloWorld:  _makedirs $(OUTDIR)\MCPServer_helloWorld.exe
-portScan:    _makedirs $(OUTDIR)\MCPServer_portScan.exe
+helloWorld:   _makedirs $(OUTDIR)\MCPServer_helloWorld.exe
+portScan:     _makedirs $(OUTDIR)\MCPServer_portScan.exe
+setReminder:  _makedirs $(OUTDIR)\MCPServer_setReminder.exe
 
 _makedirs:
     @if not exist "$(O)" mkdir "$(O)"
@@ -166,6 +172,13 @@ $(OUTDIR)\MCPServer_helloWorld.exe: $(SHARED_OBJS) $(O)\MCPServer_helloWorld.obj
 #
 
 $(OUTDIR)\MCPServer_portScan.exe: $(SHARED_OBJS) $(COMMONC_NET_OBJS) $(O)\MCPServer_portScan.obj
+    $(LINK) $(LDFLAGS) /OUT:$@ $** $(LIBS)
+
+#
+# setReminder: core + shared + timer
+#
+
+$(OUTDIR)\MCPServer_setReminder.exe: $(SHARED_OBJS) $(COMMONC_TIMER_OBJS) $(O)\MCPServer_setReminder.obj
     $(LINK) $(LDFLAGS) /OUT:$@ $** $(LIBS)
 
 # ============================================================================
@@ -194,6 +207,10 @@ $(OUTDIR)\MCPServer_portScan.exe: $(SHARED_OBJS) $(COMMONC_NET_OBJS) $(O)\MCPSer
 
 # MCP servers - portScan
 {$(MCPSRV_DIR)\portScan\}.cpp{$(O)\}.obj:
+    $(CC) $(CFLAGS) $(INC_CORE) /Fo$@ $<
+
+# MCP servers - setReminder
+{$(MCPSRV_DIR)\setReminder\}.cpp{$(O)\}.obj:
     $(CC) $(CFLAGS) $(INC_CORE) /Fo$@ $<
 
 

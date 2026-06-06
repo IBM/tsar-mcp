@@ -11,7 +11,7 @@ While the majority of the AI agent ecosystem relies on heavy runtime environment
 This repository is structured as a chronological masterclass in building a zero-dependency C-runtime. Because the `main` branch contains advanced asynchronous and threading models, **we highly recommend exploring our milestone tags chronologically to understand the core architecture:**
 
 1. **Tag: `mcp/teaching/v1.0.0`** - The zero-dependency sequential MCP baseline.
-2. **Tag: `mcp/aspects/v1.1.0`** - The simple, production-ready aspect model.
+2. **Tag: `mcp/aspects/v1.1.0`** - Introduces the simple, production-ready aspect model. **Check out this teaching version to understand the essence of how aspects are built and wired.**
 3. **Tag: `mcp/async/v2.0.0`** - The advanced threaded and asynchronous runtime.
 
 Please see [ARCHITECTURE_MILESTONES.md](./ARCHITECTURE_MILESTONES.md) for detailed instructions on how to check out these historical baselines.
@@ -38,7 +38,13 @@ This repository includes the core framework alongside simple target-specific MCP
 
 ## Getting Started
 
-Because this repository contains multiple utilities, navigate to the specific domain you want to compile.
+
+## Getting Started
+
+**Building Your Own AI Tools (Aspects)**
+The core of this framework is designed to be easily extensible. You build new AI capabilities by creating an **aspect**—a single `.cpp` file that defines your tool's personality (name, parameters, and execution logic) while plugging into the underlying native engine. The core framework handles all JSON-RPC parsing, memory management, and standard I/O automatically. 
+
+To learn how to quickly scaffold, build, and test your own custom tools, please read the **[MCPServer Aspect Guide](./mcp/doc/MCPServer_AspectGuide.md)**.
 
 **Building the MCP Framework:**
 Navigate to the `mcp/` directory. The framework uses an out-of-source build system, placing compiled binaries into the `build/Release` or `build/Debug` directories.

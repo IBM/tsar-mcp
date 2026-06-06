@@ -230,8 +230,6 @@ The core framework (`MCPServer.cpp`) inherently supports:
 * **Sampling:** Send `sampling/createMessage` requests to the LLM and catch the result in `Handle_sampling_response()`. Use `FormMCPRequest_sampling()` to build a sampling request.
 * **Prompts:** Populate `MCPPromptInfo[]` and implement `Handle_prompts_get()`. Use `FormMCPResponse_prompt()` to respond to a prompt request. 
 
-*For structured, object-oriented implementations of Async and Sampling, see `MCPServer_AdvancedPatterns.md`.*
-
 ## Checklist for a New Aspect
 - [ ] Copy `MCPServer_helloWorld.cpp` → `MCPServer_myAspect.cpp`
 - [ ] Set Identity (`MCPServer_Name`, `MCPServer_Version`)
