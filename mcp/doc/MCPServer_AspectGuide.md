@@ -8,9 +8,15 @@ The MCPServer is a C++ implementation of the [Model Context Protocol](https://mo
 
 The framework (`MCPServer.cpp`) handles all JSON-RPC protocol mechanics — parsing requests, dispatching methods, validating output, stdin/stdout I/O. Your aspect only implements the *what*, never the *how* of the protocol.
 
-## Reference Template: `MCPServer_helloWorld.cpp`
+## Reference Templates
 
-Start by copying `MCPServer_helloWorld.cpp`. It is a minimal, working aspect.
+When building a new aspect, start by copying one of our baseline templates depending on the architecture you need:
+
+* **Baseline Tool (`MCPServer_helloWorld.cpp`):** A minimal, working aspect for standard tool execution. Start here if your tool just needs to execute local C code and return text sequentially.
+
+* **Asynchronous Background Processing (`MCPServer_setReminder.cpp`):** Start here if your tool requires non-blocking execution (like long-running jobs or delayed events). It demonstrates how to set `MCPServer_Asynchronous = true`, spawn background threads, and safely send notifications back to the client long after the initial request has finished.
+
+* **Bi-directional LLM-code integration aspect (`MCPServer_wordArt.cpp`):** Start here if you are building tools that need to natively query the client's AI. It demonstrates how to use the MCP Sampling flow (`sampling/createMessage`) to delegate tasks (like cognitive reasoning or complex formatting) back to an LLM.
 
 ## Required Sections (in order)
 

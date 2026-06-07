@@ -103,7 +103,7 @@ const char* MCP_ltrim(const char *Start, size_t *Length);
 
 size_t* MCP_rtrim(const char *Start, size_t *Length);
 
-#define MCP_trim(Start,Length)  MCP_rtrim(Start, MCP_ltrim(Start, Length))
+#define MCP_trim(Start,Length)  MCP_ltrim(Start, MCP_rtrim(Start, Length))
 // Use: char *Token;
 //      size_t TokenLength = 0;
 //      Token = MCP_strtok(Input, &TokenLength);

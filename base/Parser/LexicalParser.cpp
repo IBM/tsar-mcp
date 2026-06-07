@@ -4,7 +4,7 @@
  * Filename: LexicalParser.cpp
  *
  * Copyright (c) 2026 International Business Machines Corporation
- * Copyright (c) 1098 Eric Kass
+ * Copyright (c) 1998 Eric Kass
  *
  * SPDX-License-Identifier: MIT
  */

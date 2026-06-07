@@ -139,7 +139,8 @@ SHARED_OBJS = $(CORE_OBJS) $(COMMONC_OBJS) $(JSONPARSER_OBJS) $(PARSER_OBJS)
 ASPECTS = \
     $(OUTDIR)\MCPServer_helloWorld.exe \
     $(OUTDIR)\MCPServer_portScan.exe \
-    $(OUTDIR)\MCPServer_setReminder.exe
+    $(OUTDIR)\MCPServer_setReminder.exe \
+    $(OUTDIR)\MCPServer_wordArt.exe
 
 all: _makedirs $(ASPECTS)
 
@@ -147,6 +148,7 @@ all: _makedirs $(ASPECTS)
 helloWorld:   _makedirs $(OUTDIR)\MCPServer_helloWorld.exe
 portScan:     _makedirs $(OUTDIR)\MCPServer_portScan.exe
 setReminder:  _makedirs $(OUTDIR)\MCPServer_setReminder.exe
+wordArt:      _makedirs $(OUTDIR)\MCPServer_wordArt.exe
 
 _makedirs:
     @if not exist "$(O)" mkdir "$(O)"
@@ -181,6 +183,13 @@ $(OUTDIR)\MCPServer_portScan.exe: $(SHARED_OBJS) $(COMMONC_NET_OBJS) $(O)\MCPSer
 $(OUTDIR)\MCPServer_setReminder.exe: $(SHARED_OBJS) $(COMMONC_TIMER_OBJS) $(O)\MCPServer_setReminder.obj
     $(LINK) $(LDFLAGS) /OUT:$@ $** $(LIBS)
 
+#
+# wordArt: core + shared
+#
+
+$(OUTDIR)\MCPServer_wordArt.exe: $(SHARED_OBJS) $(O)\MCPServer_wordArt.obj
+    $(LINK) $(LDFLAGS) /OUT:$@ $** $(LIBS)
+
 # ============================================================================
 # Compile Rules - Inference rules for library sources
 # ============================================================================
@@ -211,6 +220,10 @@ $(OUTDIR)\MCPServer_setReminder.exe: $(SHARED_OBJS) $(COMMONC_TIMER_OBJS) $(O)\M
 
 # MCP servers - setReminder
 {$(MCPSRV_DIR)\setReminder\}.cpp{$(O)\}.obj:
+    $(CC) $(CFLAGS) $(INC_CORE) /Fo$@ $<
+
+# MCP servers - wordArt
+{$(MCPSRV_DIR)\wordArt\}.cpp{$(O)\}.obj:
     $(CC) $(CFLAGS) $(INC_CORE) /Fo$@ $<
 
 

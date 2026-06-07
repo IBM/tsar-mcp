@@ -106,15 +106,17 @@ SHARED_OBJS = $(CORE_OBJS) $(COMMONC_OBJS) $(JSONPARSER_OBJS) $(PARSER_OBJS)
 ASPECTS = \
     $(OUTDIR)/MCPServer_helloWorld \
     $(OUTDIR)/MCPServer_portScan \
-    $(OUTDIR)/MCPServer_setReminder
+    $(OUTDIR)/MCPServer_setReminder \
+    $(OUTDIR)/MCPServer_wordArt
 
-.PHONY: all clean cleanall _makedirs helloWorld portScan setReminder
+.PHONY: all clean cleanall _makedirs helloWorld portScan setReminder wordArt
 
 all: _makedirs $(ASPECTS)
 
 helloWorld:   _makedirs $(OUTDIR)/MCPServer_helloWorld
 portScan:     _makedirs $(OUTDIR)/MCPServer_portScan
 setReminder:  _makedirs $(OUTDIR)/MCPServer_setReminder
+wordArt:      _makedirs $(OUTDIR)/MCPServer_wordArt
 
 _makedirs:
 	@mkdir -p $(O)
@@ -136,6 +138,9 @@ $(OUTDIR)/MCPServer_portScan: $(SHARED_OBJS) $(COMMONC_NET_OBJS) $(O)/MCPServer_
 	$(CXX) $(LDFLAGS) $^ -o $@ $(LIBS)
 
 $(OUTDIR)/MCPServer_setReminder: $(SHARED_OBJS) $(COMMONC_TIMER_OBJS) $(O)/MCPServer_setReminder.o
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LIBS)
+
+$(OUTDIR)/MCPServer_wordArt: $(SHARED_OBJS) $(O)/MCPServer_wordArt.o
 	$(CXX) $(LDFLAGS) $^ -o $@ $(LIBS)
 
 # ============================================================================
@@ -168,5 +173,9 @@ $(O)/%.o: $(MCPSRV_DIR)/portScan/%.cpp
 
 # MCP servers - setReminder
 $(O)/%.o: $(MCPSRV_DIR)/setReminder/%.cpp
+	$(CXX) $(CXXFLAGS) $(INC_CORE) -c $< -o $@
+
+# MCP servers - wordArt
+$(O)/%.o: $(MCPSRV_DIR)/wordArt/%.cpp
 	$(CXX) $(CXXFLAGS) $(INC_CORE) -c $< -o $@
 
