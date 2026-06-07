@@ -8,19 +8,63 @@
 
 While the majority of the AI agent ecosystem relies on heavy runtime environments (Node.js, Python), **TSAR-MCP** is built for extreme efficiency. It compiles to a native binary, consumes virtually zero idle memory, and utilizes standard operating system streams (`stdio` over SSH) for secure, instant LLM-to-system communication.
 
-## 🗺️ Exploring this Repository (Learning Path)
+## Getting Started
 
-This repository is structured as a chronological masterclass in building zero-dependency C-runtime based MCP servers. Because the `main` branch contains advanced asynchronous and threading models, **we highly recommend exploring our milestone tags chronologically to understand the core architecture:**
+### 💡 The "Aha!" Moment: Giving AI Hands
 
-1. **Tag: `mcp/teaching/v1.0.0`** - The zero-dependency sequential MCP baseline.
-2. **Tag: `mcp/aspects/v1.1.0`** - Introduces the simple, production-ready aspect model. **Check out this teaching version to understand the essence of how aspects are built and wired.**
-3. **Tag: `mcp/async/v2.0.0`** - The advanced threaded and asynchronous runtime.
+Think of an MCP server as giving an AI mind a set of "hands" to interact with the physical world. While an LLM is normally restricted to its chat window, an MCP server allows it to reach out and do things—like reading a local file, querying a secure database, or checking system hardware.
 
-Please see [ARCHITECTURE_MILESTONES.md](./ARCHITECTURE_MILESTONES.md) for detailed instructions on how to check out these historical baselines.
+**Why C? And why is it actually easy?**
+Building an integration in native C might sound daunting, but this framework combined with modern AI makes it incredibly simple. You don't even need to write the boilerplate.
 
-## The Foundation and The Future
+**Build your own custom MCP Server in 4 steps:**
 
-This repository is built upon the **TSAR** C-runtime—a legacy-hardened foundation originally designed in 2012 for high-frequency SQL processing (included here as `QueryTool`). By leveraging this battle-tested bedrock, the modern MCP AI aspects inherit enterprise-grade memory management, native BNF parsing engines, and extreme execution speed, while leaving the architecture completely open for future bare-metal utilities.
+1. **Get a compiler:** Use `g++` (available natively on Linux) or Visual Studio Community Edition (free on Windows).
+2. **Get Git:** Download from [git-scm.com](https://git-scm.com) or use your package manager (e.g., `sudo apt install git`).
+3. **Clone the repository:** Pull the TSAR-MCP framework to your local machine.
+   ```bash
+   git clone https://github.com/IBM/tsar-mcp.git
+4. **Let the AI write the code:** Open your favorite LLM (Claude, ChatGPT, Gemini), attach the **[`mcp/doc/MCPServer_AspectGuide.md`](./mcp/doc/MCPServer_AspectGuide.md)** file *(true to form, TSAR-MCP was architected so that aspects are easily co-authored by both LLMs and humans)*, and prompt it with what you want:
+   > *"Please read this guide and write me a new MCP aspect to read a specified number of lines from any text file and return it to the client."*
+
+The LLM will seamlessly read the architectural rules and generate the exact `.cpp` file you need. Drop it into the directory, run `make`, and your AI now has a brand new set of hands.
+
+---
+
+### 🔌 Wiring it to your AI Client
+
+Once you have compiled your MCP server, you need to connect it to an AI client (like Claude Desktop or VSCode). Because TSAR-MCP uses a strict zero-dependency `stdio` transport model, you can run the server locally or securely across the world over an SSH tunnel.
+
+Read the **[MCPServer Wiring & Transport Guide](./mcp/doc/MCPServer_WiringGuide.md)** to learn how to easily configure your `mcp.json` for local, OpenSSH, or PuTTY/Plink connections.
+
+---
+
+### Building the MCP Framework Manually
+
+If you prefer to manually scaffold your tools or compile the included baseline examples, the core of this framework is designed to be easily extensible. You build new AI capabilities by creating an **aspect**—a single `.cpp` file that defines your tool's personality (name, parameters, and execution logic) while plugging into the underlying native engine. The core framework handles all JSON-RPC parsing, memory management, and standard I/O automatically. 
+
+To learn how to quickly scaffold, build, and test your own custom tools by hand, please read the **[MCPServer Aspect Guide](./mcp/doc/MCPServer_AspectGuide.md)**.
+
+Navigate to the `mcp/` directory. The framework uses an out-of-source build system, placing compiled binaries into the `build/Release` or `build/Debug` directories.
+
+**Linux / macOS (GNU Make):**
+```bash
+cd mcp
+make                 # Builds all aspects (Release mode)
+make CFG=Debug       # Builds all aspects (Debug mode)
+make helloWorld      # Builds only the helloWorld aspect
+make cleanall        # Removes the entire build directory
+```
+
+**Windows**
+
+```bash
+cd mcp
+nmake -f Makefile.nmake                 # Builds all aspects (Release mode)
+nmake -f Makefile.nmake CFG=Debug       # Builds all aspects (Debug mode)
+nmake -f Makefile.nmake helloWorld      # Builds only the helloWorld aspect
+nmake -f Makefile.nmake cleanall        # Removes the entire build directory
+```
 
 ## Core Architecture
 
@@ -38,36 +82,27 @@ This repository includes the core framework alongside simple target-specific MCP
 
 **Enterprise Roadmap:** Because the framework compiles to a highly efficient native binary, future milestones will introduce heavy-duty enterprise aspects. This includes modules like **SAP Control (`sapControl`)**, which will allow LLMs to monitor processes and edit profiles across an SAP landscape using native commands, entirely eliminating the need for heavy SOAP gateways or third-party agents.
 
-## Getting Started
+## 🗺️ Exploring this Repository (Learning Path)
 
-**Building Your Own AI Tools (Aspects)**
-The core of this framework is designed to be easily extensible. You build new AI capabilities by creating an **aspect**—a single `.cpp` file that defines your tool's personality (name, parameters, and execution logic) while plugging into the underlying native engine. The core framework handles all JSON-RPC parsing, memory management, and standard I/O automatically. 
+This repository is structured as a chronological masterclass in building zero-dependency C-runtime based MCP servers. Because the `main` branch contains advanced asynchronous and threading models, **we highly recommend exploring our milestone tags chronologically to understand the core architecture:**
 
-To learn how to quickly scaffold, build, and test your own custom tools, please read the **[MCPServer Aspect Guide](./mcp/doc/MCPServer_AspectGuide.md)**.
+1. **Tag: `mcp/teaching/v1.0.0**` - The zero-dependency sequential MCP baseline.
+2. **Tag: `mcp/aspects/v1.1.0**` - Introduces the simple, production-ready aspect model. **Check out this teaching version to understand the essence of how aspects are built and wired.**
+3. **Tag: `mcp/async/v2.0.0**` - The advanced threaded and asynchronous runtime.
 
-**Building the MCP Framework:**
-Navigate to the `mcp/` directory. The framework uses an out-of-source build system, placing compiled binaries into the `build/Release` or `build/Debug` directories.
+Please see **[ARCHITECTURE_MILESTONES.md](./ARCHITECTURE_MILESTONES.md)** for detailed instructions on how to check out these historical baselines.
 
-**Linux / macOS (GNU Make):**
-```bash
-cd mcp
-make                 # Builds all aspects (Release mode)
-make CFG=Debug       # Builds all aspects (Debug mode)
-make helloWorld      # Builds only the helloWorld aspect
-make cleanall        # Removes the entire build directory
-```
+## The Foundation and The Future
 
-**Windows**
-```bash
-cd mcp
-nmake -f Makefile.nmake                 # Builds all aspects (Release mode)
-nmake -f Makefile.nmake CFG=Debug       # Builds all aspects (Debug mode)
-nmake -f Makefile.nmake helloWorld      # Builds only the helloWorld aspect
-nmake -f Makefile.nmake cleanall        # Removes the entire build directory
-```
+This repository is built upon the **TSAR** C-runtime—a legacy-hardened foundation originally designed in 2012 for high-frequency SQL processing (included here as `QueryTool`). By leveraging this battle-tested bedrock, the modern MCP AI aspects inherit enterprise-grade memory management, native BNF parsing engines, and extreme execution speed, while leaving the architecture completely open for future bare-metal utilities.
+
+### 🏛️ Legacy Origins: The SourceForge Query Tool
+For those interested in exploring the original 2012 architecture before the MCP AI integrations, the pristine initial import from the legacy SourceForge repository has been preserved in the project history. 
+
+See **[ARCHITECTURE_MILESTONES.md](./ARCHITECTURE_MILESTONES.md)** (Tag: `db/querytool/v1.0.0`).
 
 ## License & Authorship
 
 Copyright (c) 2026 International Business Machines
 Architected and Authored by Eric Kass
-Licensed under the [MIT License](LICENSE).
+Licensed under the [MIT License](./LICENSE).
