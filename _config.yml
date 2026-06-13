@@ -1,0 +1,9 @@
+title: TSAR-MCP
+description: A zero-dependency native C framework for building Model Context Protocol (MCP) servers on edge and enterprise systems.
+image: https://raw.githubusercontent.com/IBM/tsar-mcp/main/assets/tsar-banner.png
+
+# Instantly applies a clean, professional UI
+theme: jekyll-theme-cayman
+
+# Tells the theme to auto-generate "View on GitHub" buttons
+repository: IBM/tsar-mcp

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/tsar-banner.png" width="750" alt="TSAR-MCP Cliff Edge AI Banner">
+  <img src="assets/tsar-banner.png" width="750" alt="TSAR-MCP Cliff Edge AI Banner">
 </p>
 
 # TSAR-MCP: Zero-Dependency C Framework for Edge AI
@@ -14,7 +14,7 @@ While the majority of the AI agent ecosystem relies on heavy runtime environment
 
 Think of an MCP server as giving an AI mind a set of "hands" to interact with the physical world. While an LLM is normally restricted to its chat window, an MCP server allows it to reach out and do things—like reading a local file, querying a secure database, or checking system hardware.
 
-**Why C? And why is it actually easy?**
+**Why C (well... Orthodox C++)? And why is it actually easy?**
 Building an integration in native C might sound daunting, but this framework combined with modern AI makes it incredibly simple. You don't even need to write the boilerplate.
 
 **Build your own custom MCP Server in 4 steps:**
