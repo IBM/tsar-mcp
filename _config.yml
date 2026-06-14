@@ -1,9 +1,30 @@
+# Standard metadata
 title: TSAR-MCP
 description: A zero-dependency native C framework for building Model Context Protocol (MCP) servers on edge and enterprise systems.
-image: https://raw.githubusercontent.com/IBM/tsar-mcp/main/assets/tsar-banner.png
+image: https://ibm.github.io/tsar-mcp/assets/tsar-banner.jpg
+
+# Social Media Previews (Injected site-wide via defaults)
+defaults:
+  - scope:
+      path: "" # The empty string means this applies to ALL pages
+    values:
+      image: "https://ibm.github.io/tsar-mcp/assets/tsar-banner.jpg"
+
+# Forces the large banner preview on X/Twitter and Slack
+twitter:
+  card: summary_large_image
 
 # Instantly applies a clean, professional UI
 theme: jekyll-theme-cayman
 
 # Tells the theme to auto-generate "View on GitHub" buttons
 repository: IBM/tsar-mcp
+
+# GitHub Pages configuration
+url: "https://ibm.github.io"
+baseurl: "/tsar-mcp"
+
+# Plugins
+plugins:
+  - jekyll-sitemap
+  

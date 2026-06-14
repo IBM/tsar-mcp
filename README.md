@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/tsar-banner.png" width="750" alt="TSAR-MCP Cliff Edge AI Banner">
+  <img src="assets/tsar-banner.jpg" width="750" alt="TSAR-MCP Cliff Edge AI Banner">
 </p>
 
 # TSAR-MCP: Zero-Dependency C Framework for Edge AI
