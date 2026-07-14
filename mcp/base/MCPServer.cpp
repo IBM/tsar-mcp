@@ -57,6 +57,19 @@
 
 static bool MCPJSONTrace = false;               // Trace JSON from/to client.
 
+// ------------------------------------------------------------
+// ---- Prompt tool "emulator" for clients lacking support ----
+// --------------------------------------------------------
+//
+//      - MCPtool_listPrompts   Like: "prompts/list"
+//      - MCPtool_getPrompt     Like: "prompts/get"
+//
+// ------------------------------------------------------------
+
+#ifndef IncludePromptTools
+        #define IncludePromptTools 1
+#endif
+
 // ***************************************************************************
 // **** Share Program Arguments **********************************************
 // ***************************************************************************
@@ -714,6 +727,13 @@ extern MCPToolInfo_t MCPInternToolInfo[];
 
 static char* MCPtool_readTrace(JSON_Value&, JSON_Object&);
 
+// ----------------------
+// ---- Prompt Tools ----
+// ----------------------
+
+static char* MCPtool_listPrompts(JSON_Value&, JSON_Object&);
+static char* MCPtool_getPrompt(JSON_Value&, JSON_Object&);
+
 // ---------------------------------------------------------------------------
 // ---- Handle_tools_list ----------------------------------------------------
 // ---------------------------------------------------------------------------
@@ -868,6 +888,14 @@ static char* Handle_tools_call_dispatch(MCPInputRequest &MCPRequest)
         if (strcmp(ToolName,"readTrace") == 0)
                 {
                 return MCPtool_readTrace(*idRequest,*Arguments);
+                }
+        if (strcmp(ToolName,"listPrompts") == 0)
+                {
+                return MCPtool_listPrompts(*idRequest,*Arguments);
+                }
+        if (strcmp(ToolName,"getPrompt") == 0)
+                {
+                return MCPtool_getPrompt(*idRequest,*Arguments);
                 }
         // --------------------------------------
         // ---- Dispatch: Advanced Tool Hook ----
@@ -1581,6 +1609,57 @@ MCPToolInfo_t MCPInternToolInfo[] =
                 // [Required]
                 ""
                 }
+                // ================================
+                // ==== ==== Prompt Tools ==== ====
+                // ================================
+  #if IncludePromptTools
+                ,
+                // ---------------------
+                // ---- listPrompts ----
+                // ---------------------
+                {
+                // Name
+                "listPrompts",
+                // Description
+                "Returns the directory of available MCP prompts and their "
+                "argument schemas. Call with no arguments to list all prompts. "
+                "Use before calling getPrompt to discover prompt names "
+                "and required arguments.",
+                1,
+                // InputSchema {Properties}
+                        {
+                        "\"promptName\":{\"type\":\"string\","
+                                        "\"description\":\"Optional. Name of a "
+                                        "specific prompt to retrieve. If omitted, "
+                                        "all prompts are returned.\"}"
+                        },
+                // [Required]
+                ""
+                },
+                // -------------------
+                // ---- getPrompt ----
+                // -------------------
+                {
+                // Name
+                "getPrompt",
+                // Description
+                "Executes an MCP prompt by name and returns the rendered "
+                "prompt text. Use listPrompts first to discover "
+                "available prompts and their argument schemas.",
+                2,
+                // InputSchema {Properties}
+                        {
+                        "\"name\":{\"type\":\"string\","
+                                  "\"description\":\"Name of the prompt to execute.\"}",
+                        "\"arguments\":{\"type\":\"object\","
+                                       "\"description\":\"Key-value pairs matching "
+                                       "the prompt's argument schema. "
+                                       "All values must be strings.\"}"
+                        },
+                // [Required]
+                "\"name\""
+                }
+  #endif
                 // ---------------
                 // ---- <end> ----
                 // ---------------
@@ -1702,6 +1781,184 @@ static char* MCPtool_readTrace(JSON_Value &idRequest, JSON_Object &Arguments)
                 }
         MCPOutput = FormMCPResponse_readTrace(idRequest,Start);
         free(TraceFile);
+        return MCPOutput;
+        }
+
+// --------------------------------------------------------------
+// ---- MCPtool_listPrompts -------------------------------------
+// --------------------------------------------------------------
+//
+//      Serializes MCPPromptInfo[] as a JSON array inside a text 
+//      tool response.
+//      Optional argument "promptName" filters to a single entry.
+//
+//      Output text format mirrors prompts/list result:
+//              [{ "name": "...", 
+//                "description": "...", 
+//                "arguments": [...] 
+//              },... ]
+//
+// --------------------------------------------------------------
+
+static char* MCPtool_listPrompts(JSON_Value &idRequest, JSON_Object &Arguments)
+        {
+        const char *ProcName = "MCPtool_listPrompts";
+        const char *FilterName = Arguments.Find_member_string("promptName");
+        if (MCPPromptInfoCount == 0)
+                {
+                return FormMCPResponse_Text(&idRequest, "[]");
+                }
+        MemoryPrintf Canvas;
+        Canvas.printf("[");
+        unsigned nEmitted = 0;
+        for (unsigned i = 0; i < MCPPromptInfoCount; i++)
+                {
+                if (FilterName && 
+                    strcmp(FilterName,MCPPromptInfo[i].Name) != 0)
+                        {
+                        continue;       // Not what we're looking for.
+                        }
+                if (nEmitted > 0) Canvas.printf(",");
+                Canvas.printf("{");
+                Canvas.printf("\"name\":\"%s\",", MCPPromptInfo[i].Name);
+                char *EscDesc = EscapeJSONString(MCPPromptInfo[i].Description);
+                Canvas.printf("\"description\":\"%s\",", EscDesc ? EscDesc : "");
+                FreeEscapeJSONString(&EscDesc);
+                Canvas.printf("\"arguments\":[");
+                unsigned nArgs = MCPPromptInfo[i].nArguments;
+                for (unsigned j = 0; j < nArgs; j++)
+                        {
+                        Canvas.printf(j + 1 == nArgs ? "%s" : "%s,",
+                                      MCPPromptInfo[i].Arguments[j]);
+                        }
+                Canvas.printf("]"); /* arguments */
+                Canvas.printf("}");
+                nEmitted++;
+                }
+        Canvas.printf("]");
+        if (FilterName && nEmitted == 0)
+                {
+                MemoryPrintf ErrMsg;
+                TDEBUG(("%s: Prompt not found: %s",ProcName,FilterName));
+                ErrMsg.printf("Prompt not found: %s. "
+                              "Call listPrompts with no arguments to see "
+                              "all available prompts.",
+                              FilterName);
+                return FormMCPResponse_Text(&idRequest,ErrMsg.GetBuffer(),true);
+                }
+        return FormMCPResponse_Text(&idRequest,Canvas.GetBuffer());
+        }
+
+// ----------------------------------------------------------
+// ---- MCPtool_getPrompt -----------------------------------
+// ----------------------------------------------------------
+//
+//      Renders a prompt by name and repackages the output
+//      of Handle_prompts_get() inside a MCP tool response.
+//
+//      The "arguments" tool parameter is an object whose 
+//      members are passed directly to Handle_prompts_get 
+//      as the Arguments object.
+//
+//      Returns the rendered as prompt text (markdown).
+//
+//      Note: Prompts exposed by Handle_prompts_get_hook()
+//            are not offered because the MCPInputRequest
+//            parameter for a prompt request isn't available;
+//            meta values would need to be re-synthesized.
+//            If MCPtool_getPrompt must reach such a prompt,
+//            also expose it via Handle_prompts_get().
+//
+// ----------------------------------------------------------
+
+static char* MCPtool_getPrompt(JSON_Value &idRequest, JSON_Object &Arguments)
+        {
+        const char *ProcName = "MCPtool_getPrompt";
+        const char *PromptName = Arguments.Find_member_string("name");
+        if (!PromptName)
+                {
+                TERROR(("%s: Missing parameter: name", ProcName));
+                return FormMCPResponse_ERROR(&idRequest,
+                                             MCPErrorCode_InvalidParms,
+                                             "Invalid Params",
+                                             "Missing parameter: name");
+                }
+        // -------------------------
+        // Retrieve Prompt arguments 
+        // -------------------------
+        JSON_Object *PromptArgs = Arguments.Find_member_object("arguments");
+        static JSON_Object NoArgs;
+        if (!PromptArgs) PromptArgs = &NoArgs;
+        // ---------------------
+        // Invoke Prompt Handler
+        // ---------------------
+        TINFO(("%s: Invoking prompt: %s",ProcName,PromptName));
+        char *PromptResponse = Handle_prompts_get(idRequest,PromptName,*PromptArgs);
+        if (!PromptResponse)
+                {
+                TDEBUG(("%s: Prompt not found: %s", ProcName,PromptName));
+                return FormMCPResponse_ERROR(&idRequest,
+                                             MCPErrorCode_InvalidParms,
+                                             "Invalid Params",
+                                             "Prompt not found: %s",PromptName);
+                }
+        // ----------------------------------
+        // Unwrap Handle_prompts_get Response 
+        // ----------------------------------
+        JSON_Object *ResponseObj = BuildJSONObject(PromptResponse);
+        if (!ResponseObj)
+                {
+                TERROR(("%s: BuildJSONObject() FAILED: %s",ProcName,PromptName));
+                free(PromptResponse);
+                return FormMCPResponse_ERROR(&idRequest,
+                                             MCPErrorCode_Exception,
+                                             "Internal Error",
+                                             "Failed to parse prompt response: %s",
+                                             PromptName);
+                }
+        JSON_Object *ErrorObj = ResponseObj->Find_member_object("error");
+        if (ErrorObj)
+                {
+                // ---------------------------------------------
+                // Handle_prompts_get returned an error, forward
+                // ---------------------------------------------
+                TERROR(("%s: Forwarding Handle_prompts_get(%s) Error",
+                        ProcName,
+                        PromptName));
+                delete ResponseObj;
+                return PromptResponse; 
+                }
+        free(PromptResponse);
+        // -------------------------------------
+        // ---- Extract Prompt Text ------------
+        // -------------------------
+        // Path: result.messages[0].content.text
+        // -------------------------------------
+        JSON_Object *Result = ResponseObj->Find_member_object("result");
+        JSON_Value_Array *Messages = Result 
+                                     ? Result->Find_member_array("messages")
+                                     : NULL;
+        JSON_Object *Msg0 = NULL;
+        if (Messages && Messages->nValues > 0)
+                {
+                JSON_Value *Elem0 = (*Messages)[0];
+                if (Elem0 && Elem0->isObject())
+                        {
+                        Msg0 = (JSON_Value_Object*)Elem0;
+                        }
+                }
+        JSON_Object *Content  = Msg0 ? Msg0->Find_member_object("content") : NULL;
+        const char *PromptText = Content ? Content->Find_member_string("text")
+                                         : NULL;
+        // --------------------------------------
+        // Rewrap PromptText into a Tool response
+        // --------------------------------------
+        char *RawPrompt = PromptText ? UnescapeJSONString(PromptText) : NULL;
+        char *MCPOutput = FormMCPResponse_Text(&idRequest,
+                                               RawPrompt,
+                                               !RawPrompt); // isError
+        if (RawPrompt) FreeUnescapeJSONString(&RawPrompt);
+        delete ResponseObj;
         return MCPOutput;
         }
 

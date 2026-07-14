@@ -183,7 +183,7 @@ char* Handle_prompts_get(JSON_Value &idRequest, const char *PromptName, JSON_Obj
 char* Handle_method(MCPInputRequest &MCPRequest) { return NULL; }
 ```
 
-## Build System & VSCode Registration
+## Build System
 
 To add a new aspect, add it to both Makefiles in the `mcp/` directory:
 
@@ -217,6 +217,8 @@ $(OUTDIR)\MCPServer_myAspect.exe: $(SHARED_OBJS) $(O)\MCPServer_myAspect.obj
 ```
 Build: `nmake myAspect` (or `nmake myAspect CFG=Debug`)
 
+## LLM Registration
+
 **VSCode `mcp.json`:**
 ```json
 {
@@ -228,13 +230,14 @@ Build: `nmake myAspect` (or `nmake myAspect CFG=Debug`)
   }
 }
 ```
+See also: **[MCPServer Wiring & Transport Guide](./MCPServer_WiringGuide.md)**
 
 ## Advanced Native Features
 
 The core framework (`MCPServer.cpp`) inherently supports:
 * **Async Tools:** Set `MCPServer_Asynchronous = true` and return `Return_MCPOutput_Pending()`. Use `PostMCPOutput()` or `PostNotifyAction()` from your worker thread.
 * **Sampling:** Send `sampling/createMessage` requests to the LLM and catch the result in `Handle_sampling_response()`. Use `FormMCPRequest_sampling()` to build a sampling request.
-* **Prompts:** Populate `MCPPromptInfo[]` and implement `Handle_prompts_get()`. Use `FormMCPResponse_prompt()` to respond to a prompt request. 
+* **Prompts & Agentic Polyfill:** Populate `MCPPromptInfo[]` and implement `Handle_prompts_get()`. Use `FormMCPResponse_prompt()` to respond to a prompt request. By default, the framework automatically polyfills these prompts as agentic services (`listPrompts` and `getPrompt` tools), allowing LLMs to seamlessly invoke them even if the client application lacks native prompt support. This behavior can be disabled via the `-DIncludePromptTools=0` compiler flag.
 
 ## Checklist for a New Aspect
 - [ ] Copy `MCPServer_helloWorld.cpp` → `MCPServer_myAspect.cpp`
@@ -243,4 +246,4 @@ The core framework (`MCPServer.cpp`) inherently supports:
 - [ ] Implement `FormMCPResponse_xxx()` and `MCPtool_xxx()`
 - [ ] Wire dispatch in `Handle_tools_call()`
 - [ ] Add test cases and verify via `MCPServer_myAspect.exe Test`
-- [ ] Add Makefile target & VSCode Registration
+- [ ] Add Makefile target & LLM Registration

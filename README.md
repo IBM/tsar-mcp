@@ -95,6 +95,7 @@ This repository is structured as a chronological masterclass in building zero-de
 2. **Tag:** `mcp/aspects/v1.1.0` - Introduces the simple, production-ready aspect model. **Check out this teaching version to understand the essence of how aspects are built and wired.**
 3. **Tag:** `mcp/async/v2.0.0` - The advanced threaded and asynchronous runtime framework.
 4. **Tag:** `mcp/enterprise_io/v2.1.0` - Isolated I/O stream and JSON protocol safety.
+5. **Tag:** `mcp/agentic_prompts/v2.2.0` - Prompts as agentic services via `listPrompts` and `getPrompt` tools.
 
 Please see **[ARCHITECTURE_MILESTONES.md](./ARCHITECTURE_MILESTONES.md)** for detailed instructions on how to check out these historical baselines.
 
