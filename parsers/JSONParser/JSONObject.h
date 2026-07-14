@@ -37,17 +37,57 @@ class JSON_Object_Error : public ErrorBase
                 JSON_Object_Error(const char *error) : ErrorBase(error) {}
         };
 
-struct JSON_Object
+struct JSON_Value 
+        {
+        private:
+                JSON_Value *Parent;
+                unsigned IndexInParent;
+                friend struct JSON_Object;
+                friend struct JSON_Value_Array;
+        public:
+                JSON_Value() {Parent = NULL; IndexInParent = 0;}
+                JSON_Value(const JSON_Value&) {Parent = NULL; IndexInParent = 0;}
+                JSON_Value& operator=(const JSON_Value&) {return *this;}
+                virtual ~JSON_Value() {Clear();}
+                void Clear();
+                unsigned GetIndexInParent() {return IndexInParent;}
+                JSON_Value* GetParent() {return Parent;}
+                // ------------------
+                // ---- Identity ----
+                // ------------------
+                virtual bool isArray() {return false;}
+                virtual bool isBoolean() {return false;}
+                virtual bool isNumber() {return false;}
+                virtual bool isNull() {return false;}
+                virtual bool isObject() {return false;}
+                virtual bool isString() {return false;}
+        };
+
+struct JSON_Member
+        {
+        char *Key;
+        struct JSON_Value *Value;
+        // ----------------
+        JSON_Member() {Key = NULL; Value = NULL;}
+        JSON_Member(JSON_Member &Source);
+        ~JSON_Member() {Clear();}
+        void Clear();
+        bool SetKey(const char *Source, size_t Length);
+        JSON_Member& operator =(JSON_Member &Source);
+        };
+
+struct JSON_Object : public JSON_Value
         {
         unsigned maxMembers;
         unsigned nMembers;
-        struct JSON_Member* *Members;
+        JSON_Member* *Members;
         // ----------------        
         JSON_Object() {Members = NULL; maxMembers = nMembers = 0;}
         JSON_Object(JSON_Object &Source);
-        ~JSON_Object() {Clear();}
+        ~JSON_Object();
         bool AddMember(JSON_Member **MemberToAdd);
-        void Clear();
+        bool AddValue(const char *Key, JSON_Value **ValueToAdd);
+        virtual bool isObject() {return true;}
         JSON_Member& operator [] (unsigned i);
         JSON_Object& operator =(JSON_Object &Source);
         // ----------=====--------------
@@ -69,6 +109,7 @@ struct JSON_Object
         bool Add_member_value(const char *Key, struct JSON_Value &Value);
         bool Add_member_string(const char *Key, const char *String);
         bool Add_member_string(const char *Key, const wchar_t *String);
+        bool Add_member_escString(const char *Key, const char *escString);
         bool Add_member_int(const char *Key, int Number);
         bool Add_member_long(const char *Key, longlong_t Number);
         bool Add_member_double(const char *Key, double Number);
@@ -76,28 +117,7 @@ struct JSON_Object
         bool Add_member_null(const char *Key);
         };
 
-struct JSON_Member
-        {
-        char *Key;
-        struct JSON_Value *Value;
-        // ----------------
-        JSON_Member() {Key = NULL; Value = NULL;}
-        JSON_Member(JSON_Member &Source);
-        ~JSON_Member() {Clear();}
-        void Clear();
-        bool SetKey(const char *Source, size_t Length);
-        JSON_Member& operator =(JSON_Member &Source);
-        };
-
-struct JSON_Value 
-        {
-        virtual ~JSON_Value() {}
-        virtual bool isString() {return false;}
-        virtual bool isNumber() {return false;}
-        virtual bool isBoolean() {return false;}
-        virtual bool isObject() {return false;}
-        virtual bool isArray() {return false;}
-        };
+typedef JSON_Object JSON_Value_Object;
 
 struct JSON_Value_Array : public JSON_Value
         {
@@ -107,9 +127,8 @@ struct JSON_Value_Array : public JSON_Value
         // ----------------
         JSON_Value_Array() {Values = NULL; maxValues = nValues = 0;}
         JSON_Value_Array(JSON_Value_Array &Source);
-        ~JSON_Value_Array() {Clear();}
+        ~JSON_Value_Array();
         bool AddValue(JSON_Value **ValueToAdd);
-        void Clear();
         virtual bool isArray() {return true;}
         JSON_Value* operator [] (unsigned i);
         JSON_Value_Array& operator =(JSON_Value_Array &Source);
@@ -120,6 +139,7 @@ struct JSON_Value_Array : public JSON_Value
         struct JSON_Object* Add_value_object();
         bool Add_value_string(const char *String);
         bool Add_value_string(const wchar_t *String);
+        bool Add_value_escString(const char *escString);
         bool Add_value_int(int Number);
         bool Add_value_long(longlong_t Number);
         bool Add_value_double(double Number);
@@ -161,11 +181,9 @@ struct JSON_Value_Boolean : public JSON_Value
         virtual bool isBoolean() {return true;}
         };
 
-struct JSON_Value_Object : public JSON_Value
+struct JSON_Value_Null : public JSON_Value
         {
-        JSON_Object object;
-        // ----------------
-        virtual bool isObject() {return true;}
+        virtual bool isNull() {return true;}
         };
 
 // ***************************************************************************
@@ -174,23 +192,19 @@ struct JSON_Value_Object : public JSON_Value
 
 JSON_Object* BuildJSONObject(Node* JSONExpression);
 
-int PrintJSONObject(JSON_Object &Object,                // Returns number of
-                    PrintJSONDocumentFn_t PrintFn,      // bytes output.
-                    void *PrintUserPtr,
-                    bool asJSON=false,
-                    bool Pretty=true);
-
 int PrintJSONValue(JSON_Value &Value,                   // Returns number of
                    PrintJSONDocumentFn_t PrintFn,       // bytes output.
                    void *PrintUserPtr,
                    bool asJSON,
                    bool Pretty);
 
+#define PrintJSONObject PrintJSONValue 
+
 // -------------------
 // ---- To stdout ----
 // -------------------
 
-int PrintJSONObject(JSON_Object &Object,                // To stdout.
+int PrintJSONValue(JSON_Object &Object,                 // To stdout.
                     bool asJSON=false,
                     bool Pretty=true);
 
@@ -307,10 +321,19 @@ char* UnescapeJSONString(const char *Source);
   IV. String Escaping
 
         Add_member_string() auto-escapes on insertion.
+        Add_member_escString() stores the provided escaped JSON text as-is.
+
+        Add_value_string() auto-escapes on insertion.
+        Add_value_escString() stores the provided escaped JSON text as-is.
+        
         Find_member_string() returns the escaped (stored) form.
 
         Use UnescapeJSONString() when you need the raw value.
         Use EscapeJSONString() when building strings for manual JSON output.
+
+        Note: Keys are stored as provided; no escaping is applied 
+              automatically. If a key contains special characters, 
+              use EscapeJSONString() before inserting it.
 
 ******************************************************************************
 **** End Usage Patterns ******************************************************

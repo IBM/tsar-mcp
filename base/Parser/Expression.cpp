@@ -33,6 +33,8 @@ void (__ExpDECL *ExpTransDealloc)(void *Memory) = free;
         #define ClassCmp strcmp
 #endif
 
+#define USE_RecursiveDescent 0          // Control ChainSaw() -- node reaping.
+
 // ****************************************************************************
 // **** Memory Management *****************************************************
 // ****************************************************************************
@@ -65,7 +67,7 @@ NonTerminalNode::NonTerminalNode()
 
 NonTerminalNode::~NonTerminalNode()
 	{
-	ChainSaw();
+        if (Children[0]) ChainSaw();    // Short-circut when childless.
 	return;
 	}
 
@@ -86,6 +88,8 @@ bool NonTerminalNode::Apply(ScanStack &Stack, unsigned Count)
 	return Status;
 	}
 
+#if USE_RecursiveDescent
+
 void NonTerminalNode::ChainSaw()
 	{
 	for (unsigned i=0; i < MAX_CHILDREN_NODES; i++)
@@ -94,6 +98,60 @@ void NonTerminalNode::ChainSaw()
 		}
 	return;
 	}
+
+#else /* !USE_RecursiveDescent */
+
+void NonTerminalNode::ChainSaw()
+	{
+        NonTerminalNode *Last = this;
+        unsigned iLast = 0;             // Index is 1 (ONE) based!
+        do      {
+                Node *Next = NULL;
+                if (iLast)
+                        {
+                        //
+                        // The previous child in Last or prior Last's parent.
+                        //
+                        if (iLast > 1) Next = Last->Children[iLast-2];
+                        else Next = NULL;
+                        }
+                else    {
+                        //
+                        // Find the furthest right child node.
+                        //
+	                for (unsigned i=0; i < MAX_CHILDREN_NODES; i++)
+		                {
+                                if (!Last->Children[i]) break;
+                                Next = Last->Children[i];
+                                }
+                        }
+                if (!Next)                      // No remaining children:
+                        {                       // Delete self if not root.
+                        if (Last == this) break;
+                        unsigned IndexInParent = Last->IndexInParent;
+                        NonTerminalNode *Parent = Last->Parent;
+                        Parent->Children[IndexInParent] = NULL;
+                        delete Last;
+                        Last = Parent;
+                        iLast = IndexInParent + 1;
+                        }
+                else if (Next->isTerminal())    // Terminal in tree:
+                        {                       // Delete leaf.
+                        unsigned IndexInParent = Next->IndexInParent;
+                        Last->Children[IndexInParent] = NULL;
+                        delete Next;
+                        Next = NULL;
+                        iLast = IndexInParent + 1;
+                        }
+                else    {                       // Decend furthest branch.
+                        Last = (NonTerminalNode *)Next;
+                        iLast = 0;
+                        }
+                } while (1);
+	return;
+	}
+
+#endif /* !USE_RecursiveDescent */
 
 // **********************
 // **** Edit Utility ****

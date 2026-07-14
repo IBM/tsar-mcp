@@ -425,8 +425,7 @@ JSON_Object* MCPInputRequest::Get_params()
         JSON_Value *Value = FindMemberValue("params");
         if (Value && Value->isObject())
                 {
-                JSON_Value_Object *Object = (JSON_Value_Object *)Value;
-                params = &Object->object;
+                params = (JSON_Value_Object *)Value;
                 }
         return params;
         }
@@ -437,8 +436,7 @@ JSON_Object* MCPInputRequest::Get_result()
         JSON_Value *Value = FindMemberValue("result");
         if (Value && Value->isObject())
                 {
-                JSON_Value_Object *Object = (JSON_Value_Object *)Value;
-                result = &Object->object;
+                result = (JSON_Value_Object *)Value;
                 }
         return result;
         }
@@ -501,7 +499,7 @@ JSON_Object* MCPInputRequest::Get_param_object(const char *Key)
                 TERROR(("%s: Param '%s' isn't an Object",ProcName,Key));
                 return NULL;
                 }
-        return &vObject->object;
+        return vObject;
         }
 
 const char* MCPInputRequest::Get_param_string(const char *Key)

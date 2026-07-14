@@ -51,6 +51,10 @@
         #define MCPServerLOGPath getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp"
 #endif
 
+#ifndef ReadSTDIN_MCPMessage_MAXSIZE
+        #define ReadSTDIN_MCPMessage_MAXSIZE (20*1024*1024)
+#endif
+
 static bool MCPJSONTrace = false;               // Trace JSON from/to client.
 
 // ***************************************************************************
@@ -311,56 +315,22 @@ static char* ReadTraceFile(bool Tail, size_t ReadLength)
         #define ReadSTDIN_MCPMessage_BufferSIZE 128
 #else
         #define ReadSTDIN_MCPMessage_BufferSIZE 2048
-#endif /* _DEBUG */
+#endif /* _DEBUG */            
 
-char* ReadSTDIN_LSPRequest(FILE *in)            // Reads Content-Length bytes.
+static char ReadSTDIN_OVERFLOW_SENTINEL[ReadSTDIN_MCPMessage_BufferSIZE];
+
+void FreeMCPMessageBuffer(char **Buffer)
         {
-        const char *ProcName = "ReadSTDIN_LSPRequest";
-        // -------------------------
-        // Written by Claude 4.52024
-        // -------------------------
-        char HeaderLine[256];
-        unsigned ContentLength = 0;
-        // -----------------------------
-        // Read "Content-Length" header.
-        // -----------------------------
-        while (fgets(HeaderLine, sizeof(HeaderLine), in) != NULL)
+        if (Buffer && *Buffer)
                 {
-                if (strncmp(HeaderLine, "Content-Length:", 15) == 0)
+                if (*Buffer != ReadSTDIN_OVERFLOW_SENTINEL)
                         {
-                        ContentLength = (unsigned)atoi(HeaderLine + 15);
+                        free(*Buffer);
                         }
-                // Empty line (just \r\n or \n) signals end of headers
-                if (strcmp(HeaderLine, "\r\n") == 0 || 
-                    strcmp(HeaderLine, "\n") == 0)
-                        {
-                        break;
-                        }
+                *Buffer = NULL;
                 }
-        if (ContentLength <= 0)         // No content in input.
-                {
-                TERROR(("%s: Invalid Content-Length %u", ProcName,
-                                                         ContentLength));
-                return NULL;
-                }
-        char *Buffer = (char *)malloc(ContentLength + 1);
-        if (Buffer == NULL)
-                {
-                TERROR(("%s: Unable to malloc(%u)", ProcName,ContentLength));
-                return NULL;
-                }
-        size_t BytesRead = fread(Buffer, 1, ContentLength, in);
-        if (BytesRead != (size_t)ContentLength)
-                {
-                TERROR(("%s: Truncated Input: %u <> %u",ProcName,
-                                                        ContentLength,
-                                                        (unsigned)BytesRead));
-                free(Buffer);
-                return NULL;
-                }
-        Buffer[ContentLength] = '\0';
-        return Buffer;
-        }     
+        return;
+        }
 
 char* ReadSTDIN_MCPMessage(FILE *in)    // "getline()" - reads until EOL.
         {
@@ -374,22 +344,23 @@ char* ReadSTDIN_MCPMessage(FILE *in)    // "getline()" - reads until EOL.
                 }
         size_t Used = 0;
         do      {
+                // ---------------------------
+                // --- Read until Newline ----
+                // ---------------------------
                 char *Pos = Buffer + Used;
                 char *readBuffer = fgets(Pos,BufferSize-Used,in);
                 if (!readBuffer)
                         {
                         if (feof(in)) TDEBUG(("%s: fgets() - EOF",ProcName));
                         else TERROR(("%s: fgets() Error",ProcName));
-                        free(Buffer);
-                        Buffer = NULL;
+                        FreeMCPMessageBuffer(&Buffer);
                         break;
                         }
                 size_t readBufferLength = strlen(readBuffer);
                 if (!readBufferLength)
                         {
                         TERROR(("%s: Unexpected fgets() no read",ProcName));
-                        free(Buffer);
-                        Buffer = NULL;
+                        FreeMCPMessageBuffer(&Buffer);
                         break;
                         }
                 if (readBuffer[readBufferLength-1] == '\n')
@@ -397,6 +368,28 @@ char* ReadSTDIN_MCPMessage(FILE *in)    // "getline()" - reads until EOL.
                         readBuffer[readBufferLength-1] = '\0';
                         break;
                         }
+                // --------------------------
+                // --- Overflow handling ----
+                // --------------------------
+                if (Buffer == ReadSTDIN_OVERFLOW_SENTINEL)
+                        {
+                        continue; // ...reading until the end of message.
+                        }
+                if (BufferSize > ReadSTDIN_MCPMessage_MAXSIZE)
+                        {
+                        TERROR(("%s: Size governor triggered: "
+                                "ReadSTDIN_MCPMessage_MAXSIZE (0x%X bytes)",
+                                ProcName,
+                                ReadSTDIN_MCPMessage_MAXSIZE));
+                        FreeMCPMessageBuffer(&Buffer);
+                        Buffer = ReadSTDIN_OVERFLOW_SENTINEL;
+                        BufferSize = ReadSTDIN_MCPMessage_BufferSIZE;
+                        Used = 0;
+                        continue;
+                        }
+                // --------------------------
+                // --- Reallocate Buffer ----
+                // --------------------------
                 Used += readBufferLength;
                 size_t NewBufferSize = BufferSize * 2;
                 char *NewBuffer = (char *)realloc(Buffer,NewBufferSize);
@@ -404,8 +397,7 @@ char* ReadSTDIN_MCPMessage(FILE *in)    // "getline()" - reads until EOL.
                         {
                         TERROR(("%s: Unable to realloc(%u)",ProcName,
                                                             NewBufferSize));
-                        free(Buffer);
-                        Buffer = NULL;
+                        FreeMCPMessageBuffer(&Buffer);
                         break;
                         }
                 Buffer = NewBuffer;
@@ -413,16 +405,6 @@ char* ReadSTDIN_MCPMessage(FILE *in)    // "getline()" - reads until EOL.
                 } while (1);
         return Buffer;
         }      
-       
-void FreeMCPMessageBuffer(char **Buffer)
-        {
-        if (Buffer && *Buffer)
-                {
-                free(*Buffer);
-                *Buffer = NULL;
-                }
-        return;
-        }
 
 // ***************************************************************************
 // **** JSON Output Responses ************************************************
@@ -459,23 +441,30 @@ char* FormMCPResponse_Text(JSON_Value *idRequest,
         {
            "jsonrpc": "2.0",
            "id": 1,
-           "result": {}
+           "result": {
+             "isError": false
+           }
         }
         ----------------------------------------------------------- */
         JSON_Object root;
         root.Add_member_string("jsonrpc", "2.0");
         root.Add_member_value("id", *idRequest);
         JSON_Object *result = root.Add_member_object("result");
-        if (Text && result)
+        if (result)
                 {
-                JSON_Value_Array *content = result->Add_member_array("content");
-                if (content)
+                if (Text)
                         {
-                        JSON_Object *textItem = content->Add_value_object();
-                        if (textItem)
+                        JSON_Value_Array *content;
+                        content = result->Add_member_array("content");
+                        if (content)
                                 {
-                                textItem->Add_member_string("type","text");
-                                textItem->Add_member_string("text",Text);
+                                JSON_Object *textItem;
+                                textItem = content->Add_value_object();
+                                if (textItem)
+                                        {
+                                        textItem->Add_member_string("type","text");
+                                        textItem->Add_member_string("text",Text);
+                                        }
                                 }
                         }
                 result->Add_member_bool("isError",isError);
@@ -532,36 +521,24 @@ char* FormMCPResponse_ERROR(JSON_Value *idRequest,
                              ? "%s [%s]"
                              : "%s [%.128s...]",ErrorTag,ErrorText);
         const char *CombinedMsg = MessageCanvas.GetBuffer();
-        if (CombinedMsg)
-                {
-                char *jsonMessage = EscapeJSONString(CombinedMsg);
-                if (jsonMessage) 
-                        {
-                        Canvas.printf("\"message\":\"%s\",",jsonMessage);
-                        }
-                FreeEscapeJSONString(&jsonMessage);
-                }
+        char *jsonMessage = CombinedMsg ? EscapeJSONString(CombinedMsg) : NULL;
+        Canvas.printf("\"message\":\"%s\",",jsonMessage ? jsonMessage : "");
+        if (jsonMessage) FreeEscapeJSONString(&jsonMessage);
         TDEBUG(("%s: Error (id=%s): %s",ProcName,
                                         id2string(idRequest),
                                         CombinedMsg ? CombinedMsg : ErrorTag));
         // --------------------------------
         // ---- Emit full "data" field ----
         // --------------------------------
-        if (ErrorText)
-                {
-                char *jsonErrorText = EscapeJSONString(ErrorText);
-                if (jsonErrorText)
-                        {
-                        bool HintTrace = Code == MCPErrorCode_ParseError
-                                      || Code == MCPErrorCode_Exception;
-                        Canvas.printf("\"data\":\"%s%s\"",
-                                      jsonErrorText,
-                                      HintTrace
-                                      ? " (readTrace tool fetches details)"
-                                      : "");
-                        FreeEscapeJSONString(&jsonErrorText);
-                        }
-                }
+        char *jsonErrorText = ErrorText ? EscapeJSONString(ErrorText) : NULL;
+        bool HintTrace = Code == MCPErrorCode_ParseError
+                      || Code == MCPErrorCode_Exception;
+        Canvas.printf("\"data\":\"%s%s\"",
+                      jsonErrorText ? jsonErrorText : "",
+                      HintTrace
+                      ? " (readTrace tool fetches details)"
+                      : "");
+        if (jsonErrorText) FreeEscapeJSONString(&jsonErrorText);
         // ----------------------------
         Canvas.printf("}");
         Canvas.printf("}");
@@ -724,14 +701,18 @@ static void Handle_initialized(MCPInputRequest &MCPRequest)
 // **** MCP Tool Handlers ****************************************************
 // ***************************************************************************
 
-// --------------------------------------
-// ---- Internal Tools (Declaration) ----
-// --------------------------------------
+// ======================================
+// ==== Internal Tools (Declaration) ====
+// ======================================
 
 extern const unsigned MCPInternToolInfoCount;
 extern MCPToolInfo_t MCPInternToolInfo[];
 
-char* MCPtool_readTrace(JSON_Value &idRequest, JSON_Object &Arguments);
+// --------------------
+// ---- Trace Tool ----
+// --------------------
+
+static char* MCPtool_readTrace(JSON_Value&, JSON_Object&);
 
 // ---------------------------------------------------------------------------
 // ---- Handle_tools_list ----------------------------------------------------
@@ -884,7 +865,7 @@ static char* Handle_tools_call_dispatch(MCPInputRequest &MCPRequest)
         // ----------------------------------
         // ---- Dispatch: Internal Tools ----
         // ----------------------------------
-        if (strcmp(ToolName,"readTrace") == 0)  
+        if (strcmp(ToolName,"readTrace") == 0)
                 {
                 return MCPtool_readTrace(*idRequest,*Arguments);
                 }
@@ -1569,9 +1550,13 @@ bool PostResourceUpdated(const char *URI)
 // **** MCP Internal Tools  **************************************************
 // ***************************************************************************
 
-const unsigned MCPInternToolInfoCount = 1;
+#if IncludePromptTools
+        const unsigned MCPInternToolInfoCount = 3;
+#else
+        const unsigned MCPInternToolInfoCount = 1;
+#endif
 
-MCPToolInfo_t MCPInternToolInfo[] = 
+MCPToolInfo_t MCPInternToolInfo[] =
         {
                 // -------------------
                 // ---- readTrace ----
@@ -1605,7 +1590,7 @@ MCPToolInfo_t MCPInternToolInfo[] =
 // ---- readTrace ----
 // -------------------
 
-char* FormMCPResponse_readTrace(JSON_Value &idRequest, const char *Trace)
+static char* FormMCPResponse_readTrace(JSON_Value &idRequest,const char *Trace)
         {
         const char *ProcName = "FormMCPResponse_readTrace";
         /* ----- OUTPUT ----------------------------------------------
@@ -1644,7 +1629,7 @@ char* FormMCPResponse_readTrace(JSON_Value &idRequest, const char *Trace)
         return Canvas.AquireBuffer();
         }
 
-char* MCPtool_readTrace(JSON_Value &idRequest, JSON_Object &Arguments)
+static char* MCPtool_readTrace(JSON_Value &idRequest, JSON_Object &Arguments)
         {
         const char *ProcName = "MCPtool_readTrace";
         /* ----- INPUT -----------------------------------------------
@@ -1824,6 +1809,19 @@ bool MCPMain(const char *InputRequestBuffer, FILE *out)
         MCPInputRequest *MCPRequest = NULL;
         JSON_Value *idRequest = NULL;
         const char *Method = NULL;
+        // ********************************************
+        // **** Handle MCP Client Message Overflow ****
+        // ********************************************
+        if (InputRequestBuffer == ReadSTDIN_OVERFLOW_SENTINEL)
+                {
+                TERROR(("%s: MCP Client Message Overflow",ProcName));
+                MCPOutput = FormMCPResponse_ERROR(0,
+                                                  MCPErrorCode_Exception,
+                                                  "Buffer Overflow",
+                                                  "MCP Client Message > 0x%X",
+                                                  ReadSTDIN_MCPMessage_MAXSIZE);
+                goto OverflowResume;
+                }
         // **************************************
         // **** Build MCP Request from JSON  ****
         // **************************************
@@ -2008,7 +2006,7 @@ bool MCPMain(const char *InputRequestBuffer, FILE *out)
                 }
         else if (MCPOutput) 
                 {
-                bool Valid = ValidateJSON(MCPOutput);
+OverflowResume: bool Valid = ValidateJSON(MCPOutput);
                 if (!Valid)
                         {
                         TERROR(("%s: MCPOutput Failed to Parse",ProcName));
@@ -2033,9 +2031,6 @@ bool MCPMain(const char *InputRequestBuffer, FILE *out)
                         TraceJSON(MCPOutput);
                         TPRINT(("       --------------------------"));
                         }
-                /* ---- LSP ------------------------------------------------
-                fprintf(out,"Content-Length: %u\n\n",strlen(MCPOutput));
-                -----------------------------------------------------------*/
                 fprintf(out,"%s\n",MCPOutput);
                 fflush(out);
                 }
@@ -2686,11 +2681,36 @@ int MCPExceptionHandler(const char *ProcName, EXCEPTION_POINTERS *EXInfo)
 static bool _RunMCPServer(bool TestMode)
         {
         bool Status = true;
-        if (!TestMode && isatty(fileno(stderr)))
+        // ====================================================
+        // ==== Isolate MCP transport stream (Hide stdout) ====
+        // ------------------------------------------------
+        // For rogue libraries or mis-behaving aspects.
+        // ====================================================
+        fflush(stdout);
+        int client_fileno = dup(fileno(stdout));
+        FILE *clientout = fdopen(client_fileno,"w");
+        if (!clientout)
                 {
-                fprintf(stderr,"Interactive: Enter one JSON request "
-                               "per line. Send EOF (%s) to Exit.\n",
-                               EOFSequence);
+                TERROR(("Can't isolate stdout; fdopen() failed (%d).",errno));
+                close(client_fileno);
+                return false;
+                }
+        dup2(fileno(stderr),fileno(stdout));
+  #ifdef _WIN32
+        // ------------------------------------------
+        // Windows specific (for ironclad isolation).
+        // ------------------------------------------
+        HANDLE hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
+        HANDLE hStderr = GetStdHandle(STD_ERROR_HANDLE);
+        SetStdHandle(STD_OUTPUT_HANDLE,hStderr);
+  #endif
+        // =======================
+        // ==== Run MainLoops ====
+        // =======================
+        if (!TestMode && isatty(fileno(stdin)))
+                {
+                printf("Interactive: Enter one JSON request "
+                       "per line. Send EOF (%s) to Exit.\n",EOFSequence);
                 }
         if (TestMode)
                 {
@@ -2698,27 +2718,27 @@ static bool _RunMCPServer(bool TestMode)
                         {
                         TERROR(("Shouldn't run Test mode asynchronously."));
                         }
-                Status = MCPTest(stdout);
+                Status = MCPTest(clientout);
                 }
         else if (!MCPServer_Asynchronous)
                 {
                 // ---------------------
                 // ---- Syncronious ----
                 // ---------------------
-                Status = MCPMainLoop(stdin,stdout);
+                Status = MCPMainLoop(stdin,clientout);
                 }
         else    {
                 // ----------------------
                 // ---- Asynchronous ----
                 // ----------------------
                 MCPServerIOReader MCPServerReader;
-                bool Status = MCPServerReader.Start(stdin);
+                Status = MCPServerReader.Start(stdin);
                 if (!Status)
                         {
                         TERROR(("Can't Start MCPServerReader"));
                         }
                 else    {
-                        int rc = MCPServerMain.Run(stdin,stdout);
+                        int rc = MCPServerMain.Run(stdin,clientout);
                         if (MCPServerReader.IsStarted()) 
                                 {
                                 MCPServerReader.Kill(true);
@@ -2726,6 +2746,16 @@ static bool _RunMCPServer(bool TestMode)
                         Status = rc == 0;
                         }
                 }
+        // ========================
+        // ==== Restore stdout ====
+        // ========================
+  #ifdef _WIN32
+        SetStdHandle(STD_OUTPUT_HANDLE,hStdout);
+  #endif
+        fflush(clientout);
+        fflush(stdout);
+        dup2(client_fileno,fileno(stdout));
+        fclose(clientout);
         return Status;
         }
 
@@ -2817,6 +2847,7 @@ int main(int argc, const char *argv[])
                 fprintf(stderr,"Trace File: %s\n",TraceFilename);
                 fflush(stderr);
                 SetLevelTraceFunction(LevelTraceFileTrace,LevelTraceFile);
+                TINFO(("Trace File: %s",TraceFilename));
                 }
         // ********************
         // **** Initialize ****

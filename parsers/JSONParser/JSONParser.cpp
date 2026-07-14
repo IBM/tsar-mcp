@@ -22,6 +22,8 @@
 #else
         #define KeywordCmp strnicmp
 #endif
+               
+#define USE_RecursiveDescent 0                  // Control PrintJSONDocument.
 
 // ****************************************************************************
 // **** Expression Parser w/ Partial Expression Return ************************
@@ -157,9 +159,21 @@ Node* ParseJSONBuffer(StateMachine &LRMachine,
 
 // ***************************************************************************
 // **** Print Parsed JSON Document *******************************************
+// ********************************
+//
+// USE_RecursiveDescent == 1
+//
+//      Recursive reference implementation. 
+//      A 1MB stack supports over 2400 nesting levels.
+//                         
+// USE_RecursiveDescent == 0
+//
+//      Iterative implementation. 
+//      O(1) stack usage regardless of tree depth.
+//
 // ***************************************************************************
                                         // ---------------------------------
-struct PrintDocStateJSON                // EXACT DUPLICATE IN JSONParser.cpp
+struct PrintDocStateJSON                // EXACT DUPLICATE IN JSONObject.cpp
         {                               // ---------------------------------
         unsigned Indent;
         bool InText;                    // Try to keep text within tags.
@@ -267,6 +281,8 @@ static void PrintTextItem(PrintDocStateJSON &State,
         return;
         }
 
+#if USE_RecursiveDescent
+
 static void _PrintDocument(Node *Expression, PrintDocStateJSON &State)
 	{
         unsigned TypeID = Expression->GetTypeID();
@@ -306,6 +322,48 @@ static void _PrintDocument(Node *Expression, PrintDocStateJSON &State)
                 }
 	return;
 	}
+
+#else /* ! USE_RecursiveDescent */
+
+static void _PrintDocument(Node *Current, PrintDocStateJSON &State)
+	{
+        unsigned Level = 0;
+        while (Current)
+                {
+                unsigned TypeID = Current->GetTypeID();
+                switch (TypeID)
+                        {
+                        case Ew_JSONMemberID:
+                                State.NewLine = true;
+                                break;
+                        case Ew_OpenBraceID: 
+                                State.Indent += 2;
+                                State.NewLine = true;
+                                break;
+                        case Ew_CloseBraceID: 
+                                State.NewLine = true;
+                                break;
+                        }
+                if (Current->isTerminal())
+                        {
+                        TerminalNode *Node = (TerminalNode *)Current;
+                        LexicalItem *Item = (LexicalItem *)Node->GetValue();
+                        if (Item->SymbolClass != SC_Null)
+                                {
+                                PrintTextItem(State,Item->String,Item->Length);
+                                }
+                        }
+                switch (TypeID)
+                        {
+                        case Ew_CloseBraceID: State.Indent -= 2;
+                                              break;
+                        }
+                Current = SequentialGetNext(Current,Level);
+                }
+	return;
+	}
+
+#endif /* !USE_RecursiveDescent */
 
 int PrintJSONDocument(Node *Expression,                   // Returns number
                       PrintJSONDocumentFn_t PrintFn,      // of bytes output.

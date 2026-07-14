@@ -20,7 +20,11 @@
 
 #include <JSONObject.h>
 
-static JSON_Value* CloneJSONValue(JSON_Value *Source);
+#ifndef MAX_BuildJSONObject_DEPTH
+        #define MAX_BuildJSONObject_DEPTH 3000  // Call-Stack recursion guard.
+#endif
+
+#define USE_RecursiveDescent 0  // Control CloneJSONValue and PrintJSONObject.
 
 // ***************************************************************************
 // **** Amount Conversion ****************************************************
@@ -403,29 +407,199 @@ char* UnescapeJSONString(const char *Source)
         }
 
 // ***************************************************************************
+// **** JSON_Value ***********************************************************
+// ***************************************************************************
+
+void JSON_Value::Clear()
+        {
+        JSON_Value *Current = this;
+        while (Current)
+                {
+                if (Current->isObject())
+                        {
+                        if (((JSON_Value_Object *)Current)->nMembers == 0)
+                                {
+  Delete_Parents_Child:         if (Current == this) break;
+                                JSON_Value *Parent = Current->Parent;
+                                unsigned ParentIndex = Current->IndexInParent;
+                                // ------------------------------------
+                                // ---- Delete Current from Parent ----
+                                // ------------------------------------
+                                if (Parent->isObject())
+                                        {
+                                        JSON_Value_Object *pObject = (JSON_Value_Object *)Parent;
+                                        assert(ParentIndex == pObject->nMembers-1);
+                                        JSON_Member *Member = pObject->Members[ParentIndex]; 
+                                        pObject->Members[ParentIndex] = NULL;
+                                        pObject->nMembers--;
+                                        delete Member;
+                                        }
+                                else if (Parent->isArray())
+                                        {
+                                        JSON_Value_Array *pArray = (JSON_Value_Array *)Parent;
+                                        assert(ParentIndex == pArray->nValues-1);
+                                        JSON_Value *Value = pArray->Values[ParentIndex]; 
+                                        pArray->Values[ParentIndex] = NULL;
+                                        pArray->nValues--;
+                                        delete Value;
+                                        }
+                                Current = Parent;
+                                }
+                        else    {
+                                JSON_Value_Object *Object = (JSON_Value_Object *)Current;
+                                JSON_Member *Member = Object->Members[Object->nMembers-1];
+                                if (Member->Value && (Member->Value->isObject() ||
+                                                      Member->Value->isArray()))
+                                        {
+                                        assert(Member->Value->Parent);
+                                        Current = Member->Value; // Walk right child...
+                                        }
+                                else    {
+                                        Object->Members[Object->nMembers-1] = NULL;
+                                        Object->nMembers--;
+                                        delete Member;           // Delete simple members.
+                                        }
+                                }
+                        }
+                else if (Current->isArray())
+                        {
+                        JSON_Value_Array *Array = (JSON_Value_Array *)Current;
+                        if (Array->nValues == 0) goto Delete_Parents_Child;
+                        else    {
+                                JSON_Value *Value = Array->Values[Array->nValues-1];
+                                if (Value && (Value->isObject() || Value->isArray()))
+                                        {
+                                        assert(Value->Parent);
+                                        Current = Value;         // Walk right child...
+                                        }
+                                else    {
+                                        Array->Values[Array->nValues-1] = NULL;
+                                        Array->nValues--;
+                                        if (Value) delete Value; // Delete simple values.
+                                        }
+                                }
+                        }
+                else break; // Simple value; nothing to do.
+                }
+        return;
+        }
+
+// ************************************
+// **** Sequential Iterate Utility ****
+// ************************************
+
+JSON_Value* SequentialGetNext(JSON_Value *Current,  // Containers are returned
+                              unsigned &Level,      // twice; once before all
+                              bool &After)          // children, once 'After'.
+        {
+        if (!Current) return NULL;
+        JSON_Value *Child = NULL;
+        if (After) goto Resume;
+        if (Current->isObject())
+                {
+                JSON_Value_Object *cObject = (JSON_Value_Object *)Current;
+                if (!cObject->nMembers) 
+                        {
+                        After = true;
+                        return Current; // Second time seeing the container.
+                        }
+                Child = cObject->Members[0]->Value;
+                }
+        else if (Current->isArray())
+                {
+                JSON_Value_Array *cArray = (JSON_Value_Array *)Current;
+                if (!cArray->nValues) 
+                        {
+                        After = true;
+                        return Current; // Second time seeing the container.
+                        }
+                Child = cArray->Values[0];
+                }
+        if (Child)                                      // Send first child.
+                {
+                After = false;
+                Level++;
+                return Child;           // First time seeing the container.
+                }
+ Resume: while (Level)                                   // Send siblings.
+                {
+                JSON_Value *Parent = Current->GetParent();
+                if (!Parent) return NULL;                       // All done.
+                unsigned i = Current->GetIndexInParent();
+                if (Parent->isObject())
+                        {
+                        JSON_Value_Object *pObject = (JSON_Value_Object *)Parent;
+                        if (++i < pObject->nMembers)
+                                {
+                                After = false;
+                                return pObject->Members[i]->Value;
+                                }
+                        Level--;
+                        After = true;
+                        return Parent;  // Second time seeing the container.
+                        }
+                else if (Parent->isArray())
+                        {
+                        JSON_Value_Array *pArray = (JSON_Value_Array *)Parent;
+                        if (++i < pArray->nValues)
+                                {
+                                After = false;
+                                return pArray->Values[i];
+                                }
+                        Level--;
+                        After = true;
+                        return Parent;  // Second time seeing the container.
+                        }
+                Level--;
+                Current = Parent;
+                }
+        return NULL;
+        }
+
+JSON_Member* GetValueMember(JSON_Value *Value)
+        {
+        static const char *ProcName = "GetValueMember";
+        if (!Value) return NULL;
+        JSON_Value *Parent = Value->GetParent();
+        if (!Parent) return NULL;
+        if (Parent->isObject())
+                {
+                unsigned IndexInParent = Value->GetIndexInParent();
+                JSON_Value_Object *pObject = (JSON_Value_Object *)Parent;
+                if (IndexInParent >= pObject->maxMembers)
+                        {
+                        TERROR(("%s: Invalid IndexInParent %u >= %u",
+                                ProcName,
+                                IndexInParent,
+                                pObject->maxMembers));
+                        return NULL;
+                        }
+                return pObject->Members[IndexInParent];
+                }
+        return NULL;
+        }
+
+// ***************************************************************************
 // **** JSON_Object **********************************************************
 // ***************************************************************************
 
+static JSON_Value* CloneJSONValue(JSON_Value *Source);
+
 JSON_Object::JSON_Object(JSON_Object &Source)
+        : JSON_Value(Source)
         {
-        if (this == &Source) return;
         Members = NULL; 
         maxMembers = nMembers = 0;
         *this = Source;
         return;
         }
 
-void JSON_Object::Clear()
+JSON_Object::~JSON_Object()
         {
-        while (nMembers)
-                {
-                --nMembers;
-                delete Members[nMembers];
-                Members[nMembers] = NULL;
-                }
-        free(Members);
-        Members = NULL; 
-        maxMembers = 0;
+        if (nMembers) Clear();          // Short-circut when childless.
+        free(Members); 
+        Members=NULL; 
+        maxMembers=0;
         return;
         }
 
@@ -447,8 +621,48 @@ bool JSON_Object::AddMember(JSON_Member **MemberToAdd)
                 maxMembers = newCount;
                 Members = newMembers;
                 }
-        Members[nMembers++] = *MemberToAdd;
+        unsigned Index = nMembers++;
+        Members[Index] = *MemberToAdd;
         *MemberToAdd = NULL;
+        // -------------------------
+        // ---- Set Backpointer ----
+        // -------------------------
+        if (Members[Index]->Value)
+                {
+                Members[Index]->Value->Parent = this;
+                Members[Index]->Value->IndexInParent = Index;
+                }
+        return true;
+        }
+
+bool JSON_Object::AddValue(const char *Key, JSON_Value **ValueToAdd)
+        {
+        static const char *ProcName = "JSON_Object::AddValue";
+        if (!Key)
+                {
+                TERROR(("%s: Missing Key",ProcName));
+                return false;
+                }
+        JSON_Member *member = new JSON_Member();
+        if (!member)
+                {
+                TERROR(("%s: Unable to alloc JSON_Member",ProcName));
+                return false;
+                }
+        if (!member->SetKey(Key, strlen(Key)))
+                {
+                TERROR(("%s: Unable to set Key",ProcName));
+                delete member;
+                return false;
+                }
+        member->Value = *ValueToAdd;
+        *ValueToAdd = NULL;
+        if (!AddMember(&member))
+                {
+                TERROR(("%s: Unable to add member",ProcName));
+                delete member;
+                return false;
+                }
         return true;
         }
 
@@ -543,8 +757,7 @@ JSON_Object* JSON_Object::Find_member_object(const char *Key)
         JSON_Value *Value = FindMemberValue(Key);
         if (Value && Value->isObject())
                 {
-                JSON_Value_Object *vObject = (JSON_Value_Object*)Value;
-                Object = &vObject->object;
+                Object = (JSON_Value_Object*)Value;
                 }
         return Object;
         }
@@ -601,23 +814,16 @@ bool JSON_Object::Add_member_value(const char *Key, struct JSON_Value &Value)
                 TERROR(("%s: Missing Key",ProcName));
                 return false;
                 }
-        JSON_Member *member = new JSON_Member();
-        if (!member)
+        JSON_Value *clone = CloneJSONValue(&Value);
+        if (!clone)
                 {
-                TERROR(("%s: Unable to alloc JSON_Member",ProcName));
+                TERROR(("%s: Unable to clone Value",ProcName));
                 return false;
                 }
-        if (!member->SetKey(Key, strlen(Key)))
-                {
-                TERROR(("%s: Unable to set Key",ProcName));
-                delete member;
-                return false;
-                }
-        member->Value = CloneJSONValue(&Value);
-        if (!AddMember(&member))
+        if (!AddValue(Key,&clone))
                 {
                 TERROR(("%s: Unable to add member",ProcName));
-                delete member;
+                delete clone;
                 return false;
                 }
         return true;
@@ -635,33 +841,20 @@ JSON_Value_Array* JSON_Object::Add_member_array(const char *Key)
                 TERROR(("%s: Missing Key",ProcName));
                 return NULL;
                 }
-        JSON_Member *member = new JSON_Member();
-        if (!member)
-                {
-                TERROR(("%s: Unable to alloc JSON_Member",ProcName));
-                return NULL;
-                }
-        if (!member->SetKey(Key, strlen(Key)))
-                {
-                TERROR(("%s: Unable to set Key",ProcName));
-                delete member;
-                return NULL;
-                }
         JSON_Value_Array *valueArray = new JSON_Value_Array();
         if (!valueArray)
                 {
                 TERROR(("%s: Unable to alloc JSON_Value_Array",ProcName));
-                delete member;
                 return NULL;
                 }
-        member->Value = valueArray;
-        if (!AddMember(&member))
+        JSON_Value_Array *rcArray = valueArray;
+        if (!AddValue(Key,(JSON_Value **)&valueArray))
                 {
                 TERROR(("%s: Unable to add member",ProcName));
-                delete member;
+                delete rcArray;
                 return NULL;
                 }
-        return valueArray;
+        return rcArray;
         }
 
 JSON_Object* JSON_Object::Add_member_object(const char *Key)
@@ -672,33 +865,20 @@ JSON_Object* JSON_Object::Add_member_object(const char *Key)
                 TERROR(("%s: Missing Key",ProcName));
                 return NULL;
                 }
-        JSON_Member *member = new JSON_Member();
-        if (!member)
-                {
-                TERROR(("%s: Unable to alloc JSON_Member",ProcName));
-                return NULL;
-                }
-        if (!member->SetKey(Key, strlen(Key)))
-                {
-                TERROR(("%s: Unable to set Key",ProcName));
-                delete member;
-                return NULL;
-                }
         JSON_Value_Object *valueObj = new JSON_Value_Object();
         if (!valueObj)
                 {
                 TERROR(("%s: Unable to alloc JSON_Value_Object",ProcName));
-                delete member;
                 return NULL;
                 }
-        member->Value = valueObj;
-        if (!AddMember(&member))
+        JSON_Object *rcObject = valueObj;
+        if (!AddValue(Key,(JSON_Value **)&valueObj))
                 {
                 TERROR(("%s: Unable to add member",ProcName));
-                delete member;
+                delete rcObject;
                 return NULL;
                 }
-        return &valueObj->object;
+        return rcObject;
         }
 
 bool JSON_Object::Add_member_string(const char *Key, const char *String)
@@ -714,23 +894,10 @@ bool JSON_Object::Add_member_string(const char *Key, const char *String)
                 TERROR(("%s: Missing String",ProcName));
                 return false;
                 }
-        JSON_Member *member = new JSON_Member();
-        if (!member)
-                {
-                TERROR(("%s: Unable to alloc JSON_Member",ProcName));
-                return false;
-                }
-        if (!member->SetKey(Key, strlen(Key)))
-                {
-                TERROR(("%s: Unable to set Key",ProcName));
-                delete member;
-                return false;
-                }
         JSON_Value_String *valueStr = new JSON_Value_String();
         if (!valueStr)
                 {
                 TERROR(("%s: Unable to alloc JSON_Value_String",ProcName));
-                delete member;
                 return false;
                 }
         char *escapedString = EscapeJSONString(String);
@@ -738,16 +905,13 @@ bool JSON_Object::Add_member_string(const char *Key, const char *String)
                 {
                 TERROR(("%s: Unable to escape String",ProcName));
                 delete valueStr;
-                delete member;
                 return false;
                 }
-        // Transfer ownership of escaped string to valueStr
-        valueStr->string = escapedString;
-        member->Value = valueStr;
-        if (!AddMember(&member))
+        valueStr->string = escapedString;       // Transfer ownership.
+        if (!AddValue(Key,(JSON_Value **)&valueStr))
                 {
                 TERROR(("%s: Unable to add member",ProcName));
-                delete member;
+                delete valueStr;
                 return false;
                 }
         return true;
@@ -766,23 +930,10 @@ bool JSON_Object::Add_member_string(const char *Key, const wchar_t *String)
                 TERROR(("%s: Missing String",ProcName));
                 return false;
                 }
-        JSON_Member *member = new JSON_Member();
-        if (!member)
-                {
-                TERROR(("%s: Unable to alloc JSON_Member",ProcName));
-                return false;
-                }
-        if (!member->SetKey(Key, strlen(Key)))
-                {
-                TERROR(("%s: Unable to set Key",ProcName));
-                delete member;
-                return false;
-                }
         JSON_Value_String *valueStr = new JSON_Value_String();
         if (!valueStr)
                 {
                 TERROR(("%s: Unable to alloc JSON_Value_String",ProcName));
-                delete member;
                 return false;
                 }
         char *escapedString = EscapeJSONString(String);
@@ -790,16 +941,47 @@ bool JSON_Object::Add_member_string(const char *Key, const wchar_t *String)
                 {
                 TERROR(("%s: Unable to escape String",ProcName));
                 delete valueStr;
-                delete member;
                 return false;
                 }
-        // Transfer ownership of escaped string to valueStr
-        valueStr->string = escapedString;
-        member->Value = valueStr;
-        if (!AddMember(&member))
+        valueStr->string = escapedString;       // Transfer ownership.
+        if (!AddValue(Key,(JSON_Value **)&valueStr))
                 {
                 TERROR(("%s: Unable to add member",ProcName));
-                delete member;
+                delete valueStr;
+                return false;
+                }
+        return true;
+        }
+
+bool JSON_Object::Add_member_escString(const char *Key, const char *escString)
+        {
+        static const char *ProcName = "JSON_Object::Add_member_escString";
+        if (!Key)
+                {
+                TERROR(("%s: Missing Key",ProcName));
+                return false;
+                }
+        if (!escString)
+                {
+                TERROR(("%s: Missing String",ProcName));
+                return false;
+                }
+        JSON_Value_String *valueStr = new JSON_Value_String();
+        if (!valueStr)
+                {
+                TERROR(("%s: Unable to alloc JSON_Value_String",ProcName));
+                return false;
+                }
+        if (!valueStr->SetString(escString,strlen(escString)))
+                {
+                TERROR(("%s: Unable to set String",ProcName));
+                delete valueStr;
+                return false;
+                }
+        if (!AddValue(Key,(JSON_Value **)&valueStr))
+                {
+                TERROR(("%s: Unable to add member",ProcName));
+                delete valueStr;
                 return false;
                 }
         return true;
@@ -813,34 +995,20 @@ bool JSON_Object::Add_member_int(const char *Key, int Number)
                 TERROR(("%s: Missing Key",ProcName));
                 return false;
                 }
-        JSON_Member *member = new JSON_Member();
-        if (!member)
-                {
-                TERROR(("%s: Unable to alloc JSON_Member",ProcName));
-                return false;
-                }
-        if (!member->SetKey(Key, strlen(Key)))
-                {
-                TERROR(("%s: Unable to set Key",ProcName));
-                delete member;
-                return false;
-                }
         JSON_Value_Number *valueNum = new JSON_Value_Number();
         if (!valueNum)
                 {
                 TERROR(("%s: Unable to alloc JSON_Value_Number",ProcName));
-                delete member;
                 return false;
                 }
         valueNum->long_number = Number;
         valueNum->int_number = Number;
         valueNum->double_number = Number;
         valueNum->dec2_number = Number * 100;
-        member->Value = valueNum;
-        if (!AddMember(&member))
+        if (!AddValue(Key,(JSON_Value **)&valueNum))
                 {
                 TERROR(("%s: Unable to add member",ProcName));
-                delete member;
+                delete valueNum;
                 return false;
                 }
         return true;
@@ -854,34 +1022,20 @@ bool JSON_Object::Add_member_long(const char *Key, longlong_t Number)
                 TERROR(("%s: Missing Key",ProcName));
                 return false;
                 }
-        JSON_Member *member = new JSON_Member();
-        if (!member)
-                {
-                TERROR(("%s: Unable to alloc JSON_Member",ProcName));
-                return false;
-                }
-        if (!member->SetKey(Key, strlen(Key)))
-                {
-                TERROR(("%s: Unable to set Key",ProcName));
-                delete member;
-                return false;
-                }
         JSON_Value_Number *valueNum = new JSON_Value_Number();
         if (!valueNum)
                 {
                 TERROR(("%s: Unable to alloc JSON_Value_Number",ProcName));
-                delete member;
                 return false;
                 }
         valueNum->long_number = Number;
         valueNum->int_number = (int)Number;
         valueNum->double_number = (double)Number;
         valueNum->dec2_number = (int)(Number * 100);
-        member->Value = valueNum;
-        if (!AddMember(&member))
+        if (!AddValue(Key,(JSON_Value **)&valueNum))
                 {
                 TERROR(("%s: Unable to add member",ProcName));
-                delete member;
+                delete valueNum;
                 return false;
                 }
         return true;
@@ -895,34 +1049,20 @@ bool JSON_Object::Add_member_double(const char *Key, double Number)
                 TERROR(("%s: Missing Key",ProcName));
                 return false;
                 }
-        JSON_Member *member = new JSON_Member();
-        if (!member)
-                {
-                TERROR(("%s: Unable to alloc JSON_Member",ProcName));
-                return false;
-                }
-        if (!member->SetKey(Key, strlen(Key)))
-                {
-                TERROR(("%s: Unable to set Key",ProcName));
-                delete member;
-                return false;
-                }
         JSON_Value_Number *valueNum = new JSON_Value_Number();
         if (!valueNum)
                 {
                 TERROR(("%s: Unable to alloc JSON_Value_Number",ProcName));
-                delete member;
                 return false;
                 }
         valueNum->long_number = (longlong_t)Number;
         valueNum->double_number = Number;
         valueNum->int_number = (int)Number;
         valueNum->dec2_number = (int)(Number * 100);
-        member->Value = valueNum;
-        if (!AddMember(&member))
+        if (!AddValue(Key,(JSON_Value **)&valueNum))
                 {
                 TERROR(("%s: Unable to add member",ProcName));
-                delete member;
+                delete valueNum;
                 return false;
                 }
         return true;
@@ -936,31 +1076,17 @@ bool JSON_Object::Add_member_bool(const char *Key, bool Boolean)
                 TERROR(("%s: Missing Key",ProcName));
                 return false;
                 }
-        JSON_Member *member = new JSON_Member();
-        if (!member)
-                {
-                TERROR(("%s: Unable to alloc JSON_Member",ProcName));
-                return false;
-                }
-        if (!member->SetKey(Key, strlen(Key)))
-                {
-                TERROR(("%s: Unable to set Key",ProcName));
-                delete member;
-                return false;
-                }
         JSON_Value_Boolean *valueBool = new JSON_Value_Boolean();
         if (!valueBool)
                 {
                 TERROR(("%s: Unable to alloc JSON_Value_Boolean",ProcName));
-                delete member;
                 return false;
                 }
         valueBool->boolean = Boolean;
-        member->Value = valueBool;
-        if (!AddMember(&member))
+        if (!AddValue(Key,(JSON_Value **)&valueBool))
                 {
                 TERROR(("%s: Unable to add member",ProcName));
-                delete member;
+                delete valueBool;
                 return false;
                 }
         return true;
@@ -974,23 +1100,16 @@ bool JSON_Object::Add_member_null(const char *Key)
                 TERROR(("%s: Missing Key",ProcName));
                 return false;
                 }
-        JSON_Member *member = new JSON_Member();
-        if (!member)
+        JSON_Value_Null *valueNull = new JSON_Value_Null();
+        if (!valueNull)
                 {
-                TERROR(("%s: Unable to alloc JSON_Member",ProcName));
+                TERROR(("%s: Unable to alloc JSON_Value_Null",ProcName));
                 return false;
                 }
-        if (!member->SetKey(Key, strlen(Key)))
-                {
-                TERROR(("%s: Unable to set Key",ProcName));
-                delete member;
-                return false;
-                }
-        member->Value = NULL;
-        if (!AddMember(&member))
+        if (!AddValue(Key,(JSON_Value **)&valueNull))
                 {
                 TERROR(("%s: Unable to add member",ProcName));
-                delete member;
+                delete valueNull;
                 return false;
                 }
         return true;
@@ -1002,7 +1121,6 @@ bool JSON_Object::Add_member_null(const char *Key)
 
 JSON_Member::JSON_Member(JSON_Member &Source)
         {
-        if (this == &Source) return;
         Key = NULL; 
         Value = NULL;
         *this = Source;
@@ -1048,28 +1166,20 @@ JSON_Member& JSON_Member::operator =(JSON_Member &Source)
 // **************************
 
 JSON_Value_Array::JSON_Value_Array(JSON_Value_Array &Source)
+        : JSON_Value(Source)
         {
-        if (this == &Source) return;
         Values = NULL; 
         maxValues = nValues = 0;
         *this = Source;
         return;
         }
 
-void JSON_Value_Array::Clear()
+JSON_Value_Array::~JSON_Value_Array() 
         {
-        while (nValues)
-                {
-                --nValues;
-                if (Values[nValues]) 
-                        {
-                        delete Values[nValues];
-                        Values[nValues] = NULL;
-                        }
-                }
+        if (nValues) Clear();           // Short-circut when childless.
         free(Values);
-        Values = NULL; 
-        maxValues = 0;
+        Values=NULL;
+        maxValues=0;
         return;
         }
 
@@ -1090,8 +1200,17 @@ bool JSON_Value_Array::AddValue(JSON_Value **ValueToAdd)
                 maxValues = newCount;
                 Values = newValues;
                 }
-        Values[nValues++] = *ValueToAdd;
+        unsigned Index = nValues++;
+        Values[Index] = *ValueToAdd;
         *ValueToAdd = NULL;
+        // -------------------------
+        // ---- Set Backpointer ----
+        // -------------------------
+        if (Values[Index])
+                {
+                Values[Index]->Parent = this;
+                Values[Index]->IndexInParent = Index;
+                }
         return true;
         }
 
@@ -1164,7 +1283,7 @@ JSON_Object* JSON_Value_Array::Add_value_object()
                 TERROR(("%s: Unable to alloc JSON_Value_Object",ProcName));
                 return NULL;
                 }
-        JSON_Object *rcObject = &valueObj->object;
+        JSON_Object *rcObject = valueObj;
         if (!AddValue((JSON_Value**)&valueObj))
                 {
                 TERROR(("%s: Unable to add value",ProcName));
@@ -1195,8 +1314,7 @@ bool JSON_Value_Array::Add_value_string(const char *String)
                 delete valueStr;
                 return false;
                 }
-        // Transfer ownership of escaped string to valueStr
-        valueStr->string = escapedString;
+        valueStr->string = escapedString;       // Transfer ownership.
         if (!AddValue((JSON_Value**)&valueStr))
                 {
                 TERROR(("%s: Unable to add value",ProcName));
@@ -1227,8 +1345,36 @@ bool JSON_Value_Array::Add_value_string(const wchar_t *String)
                 delete valueStr;
                 return false;
                 }
-        // Transfer ownership of escaped string to valueStr
-        valueStr->string = escapedString;
+        valueStr->string = escapedString;       // Transfer ownership.
+        if (!AddValue((JSON_Value**)&valueStr))
+                {
+                TERROR(("%s: Unable to add value",ProcName));
+                delete valueStr;
+                return false;
+                }
+        return true;
+        }
+
+bool JSON_Value_Array::Add_value_escString(const char *escString)
+        {
+        static const char *ProcName = "JSON_Value_Array::Add_value_escString";
+        if (!escString)
+                {
+                TERROR(("%s: Missing String",ProcName));
+                return false;
+                }
+        JSON_Value_String *valueStr = new JSON_Value_String();
+        if (!valueStr)
+                {
+                TERROR(("%s: Unable to alloc JSON_Value_String",ProcName));
+                return false;
+                }
+        if (!valueStr->SetString(escString,strlen(escString)))
+                {
+                TERROR(("%s: Unable to set String",ProcName));
+                delete valueStr;
+                return false;
+                }
         if (!AddValue((JSON_Value**)&valueStr))
                 {
                 TERROR(("%s: Unable to add value",ProcName));
@@ -1326,8 +1472,13 @@ bool JSON_Value_Array::Add_value_bool(bool Boolean)
 bool JSON_Value_Array::Add_value_null()
         {
         static const char *ProcName = "JSON_Value_Array::Add_value_null";
-        JSON_Value *valueNull = NULL;
-        if (!AddValue(&valueNull))
+        JSON_Value_Null *valueNull = new JSON_Value_Null();
+        if (!valueNull)
+                {
+                TERROR(("%s: Unable to alloc JSON_Value_Null",ProcName));
+                return false;
+                }
+        if (!AddValue((JSON_Value**)&valueNull))
                 {
                 TERROR(("%s: Unable to add null value",ProcName));
                 return false;
@@ -1340,8 +1491,8 @@ bool JSON_Value_Array::Add_value_null()
 // ***************************
 
 JSON_Value_String::JSON_Value_String(JSON_Value_String &Source)
+        : JSON_Value(Source)
         {
-        if (this == &Source) return;
         string = NULL;
         *this = Source;
         return;
@@ -1351,9 +1502,8 @@ JSON_Value_String& JSON_Value_String::operator =(JSON_Value_String &Source)
         {
         if (this == &Source) return *this;
         if (string) free(string);
-        string = NULL;
-        if (Source.string)
-                string = strdup(Source.string);
+        if (Source.string) string = strdup(Source.string);
+        else string = NULL;
         return *this;
         }
 
@@ -1375,8 +1525,21 @@ bool JSON_Value_String::SetString(const char *Source, size_t Length)
 // ---------------------------------------------------------------------------
 // ---- CloneJSONValue -------------------------------------------------------
 // --------------------
-// Polymorphic deep-copy of any JSON_Value subtype (IBM Bob - 2004-03-10)
+// Polymorphic deep-copy of any JSON_Value subtype.
+//
+// USE_RecursiveDescent == 1
+//
+//      Recursive reference implementation (IBM Bob - 2026-03-10). 
+//      A 1MB stack supports about 2500 nesting levels.
+//                         
+// USE_RecursiveDescent == 0
+//
+//      Iterative implementation (Eric - 2026-07-11).
+//      O(1) stack usage regardless of tree depth.
+//
 // ---------------------------------------------------------------------------
+
+#if USE_RecursiveDescent
 
 static JSON_Value* CloneJSONValue(JSON_Value *Source)
         {
@@ -1403,20 +1566,146 @@ static JSON_Value* CloneJSONValue(JSON_Value *Source)
                 {
                 rcValue = new JSON_Value_Object(*(JSON_Value_Object*)Source);
                 }
+        else if (Source->isNull())
+                {
+                rcValue = new JSON_Value_Null();
+                }
         else    {
                 TERROR(("%s: Unknown JSON_Value subtype",ProcName));
                 }
         return rcValue;
         }
 
+#else /* Iterative */
+
+static JSON_Value* CloneJSONValue(JSON_Value *Source)
+        {
+        static const char *ProcName = "CloneJSONValue";
+        unsigned Level = 0;
+        bool After = false; 
+        JSON_Value *CopyContainer = NULL;
+        JSON_Value *CopyRoot = NULL;
+        JSON_Value *Current = Source;
+        while (Current)
+                {
+                if (After)
+                        {
+                        CopyContainer = CopyContainer->GetParent();
+                        Current = SequentialGetNext(Current,Level,After);
+                        continue;
+                        }
+                // ------------------------------------------------
+                // ---- Add Member / Item to Current Container ----
+                // ------------------------------------------------
+                JSON_Value *rcCopy = NULL;
+                if (Current->isString()) 
+                        {
+                        JSON_Value_String *vString = (JSON_Value_String *)Current;
+                        rcCopy = new JSON_Value_String(*vString);
+                        }
+                else if (Current->isNumber())
+                        {
+                        JSON_Value_Number *vNumber = (JSON_Value_Number *)Current;
+                        rcCopy = new JSON_Value_Number(*vNumber);
+                        }
+                else if (Current->isBoolean())
+                        {
+                        JSON_Value_Boolean *vBoolean = (JSON_Value_Boolean *)Current;
+                        rcCopy = new JSON_Value_Boolean(*vBoolean);
+                        }
+                else if (Current->isArray())
+                        {
+                        rcCopy = new JSON_Value_Array();
+                        }
+                else if (Current->isObject())
+                        {
+                        rcCopy = new JSON_Value_Object();
+                        }
+                else if (Current->isNull())
+                        {
+                        rcCopy = new JSON_Value_Null();
+                        }
+                else    {
+                        TERROR(("%s: Unknown JSON_Value subtype",ProcName));
+                        }
+                if (!rcCopy)
+                        {
+                        TERROR(("%s: Copy Failed",ProcName));
+                        if (CopyRoot) delete CopyRoot;
+                        return NULL;
+                        }
+                JSON_Value *rcHold = rcCopy;
+                if (!CopyRoot) 
+                        {
+                        CopyRoot = rcCopy;
+                        rcCopy = NULL;
+                        }
+                else if (CopyContainer->isObject())
+                        {
+                        JSON_Value_Object *CopyObject;
+                        CopyObject = (JSON_Value_Object *)CopyContainer;
+                        JSON_Member *Member = GetValueMember(Current);
+                        const char *Key = Member ? Member->Key : NULL;
+                        CopyObject->AddValue(Key,&rcCopy);
+                        }
+                else if (CopyContainer->isArray())
+                        {
+                        JSON_Value_Array *CopyArray;
+                        CopyArray = (JSON_Value_Array *)CopyContainer;
+                        CopyArray->AddValue(&rcCopy);
+                        }
+                if (rcCopy)
+                        {
+                        TERROR(("%s: AddValue Failed",ProcName));
+                        if (CopyRoot) delete CopyRoot;
+                        return NULL;
+                        }
+                if (rcHold->isArray() || rcHold->isObject())
+                        {
+                        CopyContainer = rcHold;
+                        }
+                // ---------------------
+                // ---- Traverse... ----
+                // ---------------------
+                Current = SequentialGetNext(Current,Level,After);
+                }
+        return CopyRoot;
+        }
+
+#endif /* !USE_RecursiveDescent */
+
 // ---------------------------------------------------------------------------
 // ---- BuildJSONObject(Node* JSONExpression) --------------------------------
+// -------------------------------------------
+//
+// Note: BuildJSONObject enforces MAX_BuildJSONObject_DEPTH call
+//       stack recursive descent limit (~2 * JSON nesting-level)
+//       during construction from a parse-tree, which fires well
+//       before the ~1700 nesting-level limit on a 1MB stack. 
+//
 // ---------------------------------------------------------------------------
 
-static void BuildJSONArray(JSON_Value_Array &Array, Node *Expression);
-static void BuildJSONObject(JSON_Object &Object, Node *Expression);
+class Error_BuildJSON_Depth : public JSON_Object_Error
+        {
+        private:
+                const char *ProcName;
+        public:
+                Error_BuildJSON_Depth(const char *Proc)
+                        {
+                        ProcName = Proc;
+                        }
+                const char* GetProcName() {return ProcName;}
+        };
 
-static JSON_Value* BuildJSONValue(Node *ValueNode)
+static void BuildJSONArray(unsigned Depth, 
+                           JSON_Value_Array &Array, 
+                           Node *Expression);
+
+static void BuildJSONObject(unsigned Depth,
+                            JSON_Object &Object, 
+                            Node *Expression);
+
+static JSON_Value* BuildJSONValue(unsigned Depth, Node *ValueNode)
         {
         static const char *ProcName = "BuildJSONValue";
         int SignValue = 1;
@@ -1486,25 +1775,33 @@ static JSON_Value* BuildJSONValue(Node *ValueNode)
                         }
                 case Ew_JSONObjectID: 
                         {
+                        if (Depth >= MAX_BuildJSONObject_DEPTH) 
+                                {
+                                throw Error_BuildJSON_Depth(ProcName);
+                                }
                         JSON_Value_Object *newObject = new JSON_Value_Object;
                         if (!newObject)
                                 {
                                 TERROR(("%s: Unable to alloc newObject",ProcName));
                                 throw JSON_Object_Error("Unable to alloc newObject");
                                 }
-                        BuildJSONObject(newObject->object,Left);
+                        BuildJSONObject(Depth+1,*newObject,Left);
                         ReturnValue = newObject;
                         break;
                         }
                 case Ew_JSONArrayID: 
                         {
+                        if (Depth >= MAX_BuildJSONObject_DEPTH) 
+                                {
+                                throw Error_BuildJSON_Depth(ProcName);
+                                }
                         JSON_Value_Array *newArray = new JSON_Value_Array;
                         if (!newArray)
                                 {
                                 TERROR(("%s: Unable to alloc newArray",ProcName));
                                 throw JSON_Object_Error("Unable to alloc newArray");
                                 }
-                        BuildJSONArray(*newArray,Left);
+                        BuildJSONArray(Depth+1,*newArray,Left);
                         ReturnValue = newArray;
                         break;
                         }
@@ -1532,82 +1829,113 @@ static JSON_Value* BuildJSONValue(Node *ValueNode)
                         ReturnValue = newBoolean;
                         break;
                         }
+                case Ew_nullID: 
+                        {
+                        JSON_Value_Null *newNull = new JSON_Value_Null;
+                        if (!newNull)
+                                {
+                                TERROR(("%s: Unable to alloc newNull",ProcName));
+                                throw JSON_Object_Error("Unable to alloc newNull");
+                                }
+                        ReturnValue = newNull;
+                        break;
+                        }
                 }
         return ReturnValue;
         }
 
-static void BuildJSONArray(JSON_Value_Array &Array, Node *Expression)
+static void BuildJSONArray(unsigned Depth, 
+                           JSON_Value_Array &Array, 
+                           Node *Expression)
         {
         static const char *ProcName = "BuildJSONArray";
-        unsigned TypeID = Expression->GetTypeID();
-        if (TypeID == Ew_JSONValueID)
-                {
-                // ******************************
-                // **** Add a Value to Array ****
-                // ******************************
-                JSON_Value* newValue = BuildJSONValue(Expression);
-                Array.AddValue(&newValue);
-                if (newValue) 
+        unsigned Level = 0;
+        do      {
+                unsigned TypeID = Expression->GetTypeID();
+                if (TypeID == Ew_JSONValueID)
                         {
-                        TERROR(("%s: Unable to add Value",ProcName));
-                        delete newValue;
+                        // ******************************
+                        // **** Add a Value to Array ****
+                        // ******************************
+                        if (Depth >= MAX_BuildJSONObject_DEPTH) 
+                                {
+                                throw Error_BuildJSON_Depth(ProcName);
+                                }
+                        JSON_Value* newValue = BuildJSONValue(Depth+1,Expression);
+                        Array.AddValue(&newValue);
+                        if (newValue) 
+                                {
+                                TERROR(("%s: Unable to add Value",ProcName));
+                                delete newValue;
+                                }
+                        // ***************************************
+                        // **** Skip already handled children ****
+                        // ***************************************
+                        unsigned TopLevel = Level;
+                        do      {
+                                Expression = SequentialGetNext(Expression,Level);
+                                } while (Level > TopLevel);
                         }
-                return;
-                }
-        for (unsigned iChild = 0; iChild < MAX_CHILDREN_NODES; iChild++)
-                {
-                Node *Child = Expression->GetChild(iChild);
-                if (!Child) break;
-                BuildJSONArray(Array,Child);
-                }
+                Expression = SequentialGetNext(Expression,Level);
+                } while (Expression && Level);
         return;
         }
 
-static void BuildJSONObject(JSON_Object &Object, Node *Expression)
+static void BuildJSONObject(unsigned Depth, 
+                            JSON_Object &Object, 
+                            Node *Expression)
 	{
         static const char *ProcName = "BuildJSONObject";
-        unsigned TypeID = Expression->GetTypeID();
-        if (TypeID == Ew_JSONMemberID)
-                {
-                // ********************************
-                // **** Add a Member to Object ****
-                // ********************************
-                JSON_Member *newMember = new JSON_Member;
-                if (!newMember)
+        unsigned Level = 0;
+        do      {
+                unsigned TypeID = Expression->GetTypeID();
+                if (TypeID == Ew_JSONMemberID)
                         {
-                        TERROR(("%s: Unable to alloc newMember",ProcName));
-                        throw JSON_Object_Error("Unable to alloc newMember");
+                        // ********************************
+                        // **** Add a Member to Object ****
+                        // ********************************
+                        if (Depth >= MAX_BuildJSONObject_DEPTH) 
+                                {
+                                throw Error_BuildJSON_Depth(ProcName);
+                                }
+                        JSON_Member *newMember = new JSON_Member;
+                        if (!newMember)
+                                {
+                                TERROR(("%s: Unable to alloc newMember",ProcName));
+                                throw JSON_Object_Error("Unable to alloc newMember");
+                                }
+                        Node *NameNode = Expression->GetChild(0);
+                        Node *ValueNode = Expression->GetChild(2);
+                        // -------------
+                        // ---- Key ----
+                        // -------------
+                        assert(NameNode->GetTypeID() == Ew_JSONNameID);
+                        TerminalNode *TNode = (TerminalNode *)NameNode->GetChild(0);
+                        LexicalItem *Item = (LexicalItem *)TNode->GetValue();
+                        if (Item->SymbolClass != SC_Null)
+                                {
+                                newMember->SetKey(Item->String+1,Item->Length-2);
+                                }
+                        // ---------------
+                        // ---- Value ----
+                        // ---------------
+                        newMember->Value = BuildJSONValue(Depth+1,ValueNode);
+                        Object.AddMember(&newMember);
+                        if (newMember) 
+                                {
+                                TERROR(("%s: Unable to add Member",ProcName));
+                                delete newMember;
+                                }
+                        // ***************************************
+                        // **** Skip already handled children ****
+                        // ***************************************
+                        unsigned TopLevel = Level;
+                        do      {
+                                Expression = SequentialGetNext(Expression,Level);
+                                } while (Level > TopLevel);
                         }
-                Node *NameNode = Expression->GetChild(0);
-                Node *ValueNode = Expression->GetChild(2);
-                // -------------
-                // ---- Key ----
-                // -------------
-                assert(NameNode->GetTypeID() == Ew_JSONNameID);
-                TerminalNode *TNode = (TerminalNode *)NameNode->GetChild(0);
-                LexicalItem *Item = (LexicalItem *)TNode->GetValue();
-                if (Item->SymbolClass != SC_Null)
-                        {
-                        newMember->SetKey(Item->String+1,Item->Length-2);
-                        }
-                // ---------------
-                // ---- Value ----
-                // ---------------
-                newMember->Value = BuildJSONValue(ValueNode);
-                Object.AddMember(&newMember);
-                if (newMember) 
-                        {
-                        TERROR(("%s: Unable to add Member",ProcName));
-                        delete newMember;
-                        }
-                return;
-                }
-        for (unsigned iChild = 0; iChild < MAX_CHILDREN_NODES; iChild++)
-                {
-                Node *Child = Expression->GetChild(iChild);
-                if (!Child) break;
-                BuildJSONObject(Object,Child);
-                }
+                Expression = SequentialGetNext(Expression,Level);
+                } while (Expression && Level);
 	return;
 	}
 
@@ -1620,12 +1948,42 @@ JSON_Object* BuildJSONObject(Node* JSONExpression)
                 TERROR(("%s: Unable to alloc JSON_Object",ProcName));
                 return NULL;
                 }
-        BuildJSONObject(*Object,JSONExpression);
+        try     {
+                BuildJSONObject(0,*Object,JSONExpression);
+                }
+        catch (Error_BuildJSON_Depth &Error)
+                {
+                TERROR(("%s: Maximum Object Depth Reached: %s",
+                        ProcName,
+                        Error.GetProcName()));
+                delete Object;
+                Object = NULL;
+                }
+        catch (JSON_Object_Error &Error)
+                {
+                TERROR(("%s: Object Build Failed: %s",
+                        ProcName,
+                        Error.GetText()));
+                delete Object;
+                Object = NULL;
+                }
         return Object;
         }
 
 // ***************************************************************************
 // **** PrintJSONObject(JSON_Object *Object) *********************************
+// *******************************************
+//
+// USE_RecursiveDescent == 1
+//
+//      Recursive reference implementation. 
+//      A 1MB stack supports over 2500 nesting levels.
+//                         
+// USE_RecursiveDescent == 0
+//
+//      Iterative implementation. 
+//      O(1) stack usage regardless of tree depth.
+//
 // ***************************************************************************
                                         // ---------------------------------
 struct PrintDocStateJSON                // EXACT DUPLICATE IN JSONParser.cpp
@@ -1665,22 +2023,38 @@ struct PrintObjectStateJSON : PrintDocStateJSON
                 }
         };
 
-static void PrintJSONObject(PrintObjectStateJSON &State,
+static void PrintJSONMember(PrintObjectStateJSON &State,
                             unsigned Depth, 
-                            JSON_Object &Object);
+                            JSON_Member &Member)
+        {
+        static const char *ProcName = "PrintJSONMember";
+        if (State.asJSON)
+                {
+                State.Indent = Depth * 2;
+                State.printIndent();
+                State.printf("\"%s\":",Member.Key);
+                }
+        else    {
+                State.Indent = Depth * 2;
+                State.printIndent();
+                State.printf("Key=%s\n",Member.Key);
+                }
+        return;
+        }
 
 static void PrintJSONValue(PrintObjectStateJSON &State,
                            unsigned Depth, 
                            JSON_Value *_Value)
         {
-        if (!_Value)
+        static const char *ProcName = "PrintJSONValue";
+        if (!_Value || _Value->isNull())
                 {
                 if (State.asJSON)
                         {
                         State.printf("null");
                         }
                 else    {
-                        State.Indent = Depth;
+                        State.Indent = Depth * 2;
                         State.printIndent();
                         State.printf("Value=null\n");
                         }
@@ -1693,7 +2067,7 @@ static void PrintJSONValue(PrintObjectStateJSON &State,
                         State.printf("\"%s\"",Value.string);
                         }
                 else    {
-                        State.Indent = Depth;
+                        State.Indent = Depth * 2;
                         State.printIndent();
                         State.printf("Value=%s\n",Value.string);
                         }
@@ -1706,7 +2080,7 @@ static void PrintJSONValue(PrintObjectStateJSON &State,
                         State.printf("%s",Value.boolean ? "true" : "false");
                         }
                 else    {
-                        State.Indent = Depth;
+                        State.Indent = Depth * 2;
                         State.printIndent();
                         State.printf("Value=%s\n",Value.boolean 
                                                   ? "true" 
@@ -1723,7 +2097,7 @@ static void PrintJSONValue(PrintObjectStateJSON &State,
                                 State.printf("%d",Value.int_number);
                                 }
                         else    {
-                                State.Indent = Depth;
+                                State.Indent = Depth * 2;
                                 State.printIndent();
                                 State.printf("Value=%d\n",Value.int_number);
                                 }
@@ -1735,7 +2109,7 @@ static void PrintJSONValue(PrintObjectStateJSON &State,
                                 State.printf("%lld",Value.long_number);
                                 }
                         else    {
-                                State.Indent = Depth;
+                                State.Indent = Depth * 2;
                                 State.printIndent();
                                 State.printf("Value=%lld\n",Value.long_number);
                                 }
@@ -1750,7 +2124,7 @@ static void PrintJSONValue(PrintObjectStateJSON &State,
                                              abs(Value.dec2_number) % 100);
                                 }
                         else    {
-                                State.Indent = Depth;
+                                State.Indent = Depth * 2;
                                 State.printIndent();
                                 State.printf("Value=%s%d.%02d\n",
                                              Value.dec2_number < 0 ? "-" : "",
@@ -1764,12 +2138,15 @@ static void PrintJSONValue(PrintObjectStateJSON &State,
                                 State.printf("%g",Value.double_number);
                                 }
                         else    {
-                                State.Indent = Depth;
+                                State.Indent = Depth * 2;
                                 State.printIndent();
                                 State.printf("Value=%g\n",Value.double_number);
                                 }
                         }
                 }
+        // -----
+        // Note: Won't reach here if via PrintJSONObject_Sequential()
+        // -----
         else if (_Value->isArray())
                 {
                 JSON_Value_Array &Array = *(JSON_Value_Array*)_Value;
@@ -1783,88 +2160,117 @@ static void PrintJSONValue(PrintObjectStateJSON &State,
                 }
         else if (_Value->isObject())
                 {
-                JSON_Value_Object &Value = *(JSON_Value_Object*)_Value;
-                PrintJSONObject(State,Depth+1,Value.object);
-                }
-        return;
-        }
-
-static void PrintJSONMember(PrintObjectStateJSON &State,
-                            unsigned Depth, 
-                            JSON_Member &Member)
-        {
-        if (State.asJSON)
-                {
-                State.Indent = Depth;
-                State.printIndent();
-                State.printf("\"%s\":",Member.Key);
-                }
-        else    {
-                State.Indent = Depth;
-                State.printIndent();
-                State.printf("Key=%s\n",Member.Key);
-                }
-        if (!Member.Value) 
-                {
-                if (State.asJSON)
-                        {
-                        State.printf("null");
-                        }
-                else    {
-                        State.Indent = Depth;
-                        State.printIndent();
-                        State.printf("Value=<null>\n");
-                        }
-                }
-        else    {
-                PrintJSONValue(State,Depth+1,Member.Value);
-                }
-        return;
-        }
-
-static void PrintJSONObject(PrintObjectStateJSON &State,
-                            unsigned Depth, 
-                            JSON_Object &Object)
-        {
-        if (State.asJSON) 
-                {
-                if (Depth) 
-                        {
-                        State.printNL();
-                        State.Indent = Depth;
-                        State.printIndent();
-                        }
-                State.printf("{");
-                }
-        for (unsigned i=0; i < Object.nMembers; i++)
-                {
+                JSON_Value_Object &Object = *(JSON_Value_Object*)_Value;
                 if (State.asJSON) 
                         {
-                        if (i) State.printf(",");
-                        State.printNL();
+                        if (Depth) 
+                                {
+                                State.printNL();
+                                State.Indent = Depth * 2;
+                                State.printIndent();
+                                }
+                        State.printf("{");
                         }
-                PrintJSONMember(State,Depth,Object[i]);
-                }
-        if (State.asJSON) 
-                {
-                State.printNL();
-                State.Indent = Depth;
-                State.printIndent();
-                State.printf("}");
+                for (unsigned i=0; i < Object.nMembers; i++)
+                        {
+                        if (State.asJSON) 
+                                {
+                                if (i) State.printf(",");
+                                State.printNL();
+                                }
+                        PrintJSONMember(State,Depth,Object[i]);
+                        PrintJSONValue(State,Depth+1,Object[i].Value);
+                        }
+                if (State.asJSON) 
+                        {
+                        State.printNL();
+                        State.Indent = Depth * 2;
+                        State.printIndent();
+                        State.printf("}");
+                        }
                 }
         return;
         }
 
-int PrintJSONObject(JSON_Object &Object,                // Returns number of
-                    PrintJSONDocumentFn_t PrintFn,      // bytes output.
-                    void *PrintUserPtr,
-                    bool asJSON,
-                    bool Pretty)
+static void PrintJSONValue_Sequential(PrintObjectStateJSON &State,
+                                      JSON_Value &Value)
         {
-        PrintObjectStateJSON State(PrintFn,PrintUserPtr,asJSON,Pretty);
-        PrintJSONObject(State,0,Object);
-        return State.nPrintBytes;
+        static const char *ProcName = "PrintJSONValue_Sequential";
+        unsigned Depth = 0;
+        unsigned Level = 0;
+        bool After = false; 
+        JSON_Value *Current = &Value;
+        while (Current)
+                {
+                if (After)
+                        {
+                        // -------------------------------------
+                        // ---- Closing Braces and Brackets ----
+                        // -------------------------------------
+                        if (Current->isObject())
+                                {
+                                Depth--;
+                                if (State.asJSON) 
+                                        {
+                                        State.printNL();
+                                        State.Indent = Depth*2;
+                                        State.printIndent();
+                                        State.printf("}");
+                                        }
+                                }
+                        else if (Current->isArray())
+                                {
+                                if (State.asJSON) State.printf("]");
+                                }
+                        }
+                else    {
+                        unsigned IndexInParent = Current->GetIndexInParent();
+                        if (State.asJSON && IndexInParent) State.printf(",");
+                        if (Depth)
+                                {
+                                JSON_Member *Member = GetValueMember(Current);
+                                if (Member) 
+                                        {                                
+                                        if (State.asJSON) State.printNL();
+                                        PrintJSONMember(State,Depth-1,*Member);
+                                        }
+                                }
+                        // ----------------------------------
+                        // ---- Open Braces and Brackets ----
+                        // ----------------------------------
+                        if (Current->isObject())
+                                {
+                                if (State.asJSON) 
+                                        {
+                                        if (Depth) 
+                                                {
+                                                State.printNL();
+                                                State.Indent = Depth*2;
+                                                State.printIndent();
+                                                }
+                                        State.printf("{");
+                                        }
+                                Depth++;
+                                }
+                        else if (Current->isArray())
+                                {
+                                if (State.asJSON) State.printf("[");
+                                }
+                        // ----------------------------------
+                        // ---- Print Members and Values ----
+                        // ----------------------------------
+                        else PrintJSONValue(State,Depth,Current);
+                        }
+                // ---------------------
+                // ---- Traverse... ----
+                // ---------------------
+                Current = SequentialGetNext(Current,Level,After);
+                }
+        return;
         }
+
+// ----------------------------------------------------------
+// ----------------------------------------------------------
 
 int PrintJSONValue(JSON_Value &Value,                   // Returns number of
                    PrintJSONDocumentFn_t PrintFn,       // bytes output.
@@ -1873,7 +2279,11 @@ int PrintJSONValue(JSON_Value &Value,                   // Returns number of
                    bool Pretty)
         {
         PrintObjectStateJSON State(PrintFn,PrintUserPtr,asJSON,Pretty);
+  #if USE_RecursiveDescent
         PrintJSONValue(State,0,&Value);
+  #else
+        PrintJSONValue_Sequential(State,Value);
+  #endif
         return State.nPrintBytes;
         }
 
@@ -1881,13 +2291,13 @@ int PrintJSONValue(JSON_Value &Value,                   // Returns number of
 // ---- To stdout ----
 // -------------------
 
-int PrintJSONObject(JSON_Object &Object,        // Returns bytes output.
-                    bool asJSON,
-                    bool Pretty)           
+int PrintJSONValue(JSON_Object &Object,        // Returns bytes output.
+                   bool asJSON,
+                   bool Pretty)           
         {
         PrintJSONDocumentFn_t PrintFn = (PrintJSONDocumentFn_t)vfprintf;
         void *PrintUserPtr = stdout;
-        return PrintJSONObject(Object,PrintFn,PrintUserPtr,asJSON,Pretty);
+        return PrintJSONValue(Object,PrintFn,PrintUserPtr,asJSON,Pretty);
         }
 
 // ***************************************************************************
