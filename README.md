@@ -4,18 +4,22 @@
 
 # TSAR-MCP: Zero-Dependency C/C++ SDK for Edge AI
 
-**TSAR** stands for *"Tools Slightly Above the Runtime."* True to that philosophy, this project provides a hyper-lightweight, zero-dependency C/C++ SDK built around a native runtime framework for deploying Model Context Protocol (MCP) servers directly on edge, embedded, and enterprise systems. 
+**TSAR** stands for *"Tools Slightly Above the Runtime."* This SDK is a zero-dependency C/C++ framework for building Model Context Protocol (MCP) servers as native executables — without Python, Node.js, package managers, or background runtimes. The entire framework is a clean-room implementation — no third-party JSON parsers, no external runtime libraries.
 
-While the majority of the AI agent ecosystem relies on heavy runtime environments (Node.js, Python), **TSAR-MCP** is built for extreme efficiency. It compiles to a native binary, consumes virtually zero idle memory, and utilizes standard operating system streams (`stdio` over SSH) for secure, instant LLM-to-system communication.
+While other C++ MCP SDKs focus on web-centric transports (HTTP, WebSockets, TCP), TSAR-MCP takes the opposite approach: pure `stdio`, paired with standard `ssh` for remote access. No open network ports. No TLS stack to manage. The OS security boundary is the security boundary.
+
+That design makes it a practical fit for edge systems, legacy enterprise environments, air-gapped hosts, and any deployment where runtime bloat or exposed network ports are a liability.
 
 ## Getting Started
 
 ### 💡 The "Aha!" Moment: Giving AI Hands
 
-Think of an MCP server as giving an AI mind a set of "hands" to interact with the physical world. While an LLM is normally restricted to its chat window, an MCP server allows it to reach out and do things—like reading a local file, querying a secure database, or checking system hardware.
+An MCP server gives an LLM a controlled way to act outside the chat window. Instead of only generating text, the model can call real tools: read a file, inspect a system, query a service, or trigger local logic.
 
-**Why C (well... Orthodox C++)? And why is it actually easy?**
-Building an integration in native C might sound daunting, but this SDK combined with modern AI makes it incredibly simple. You don't even need to write the boilerplate.
+That may sound complicated in native C or C++, but TSAR-MCP keeps the hard parts in the framework. The transport, JSON-RPC handling, parsing, and response shaping are already built in. You focus on the tool behavior.
+
+**Why C (well... C-style C++) and why is it easy?**
+Because the framework already handles the protocol engine, building a new MCP tool usually comes down to filling in a small set of native hooks inside one `.cpp` file. Modern LLMs are surprisingly effective at generating that glue code when you give them the aspect guide.
 
 **Build your own custom MCP Server in 4 steps:**
 
@@ -23,9 +27,9 @@ Building an integration in native C might sound daunting, but this SDK combined 
 2. **Get Git:** Download from [git-scm.com](https://git-scm.com) or use your package manager (e.g., `sudo apt install git`).
 3. **Clone the repository:** Pull the TSAR-MCP SDK to your local machine.
    ```bash
-   git clone https://github.com
+   git clone https://github.com/IBM/tsar-mcp.git
    ```
-4. **Let the AI write the code:** Open your favorite LLM (Claude, ChatGPT, Gemini), attach the **[`mcp/doc/MCPServer_AspectGuide.md`](./mcp/doc/MCPServer_AspectGuide.md)** file *(true to form, TSAR-MCP was architected so that aspects are easily co-authored by both LLMs and humans)*, and prompt it with what you want:
+4. **Let the AI write the code:** Open your favorite LLM (Claude, ChatGPT, Gemini), attach the **[`mcp/doc/MCPServer_AspectGuide.md`](./mcp/doc/MCPServer_AspectGuide.md)** file, and prompt it with what you want:
    > *"Please read this guide and write me a new MCP aspect to read a specified number of lines from any text file and return it to the client."*
 
 The LLM will seamlessly read the architectural rules and generate the exact `.cpp` file you need. Drop it into the directory, run `make`, and your AI now has a brand new set of hands.
@@ -34,15 +38,17 @@ The LLM will seamlessly read the architectural rules and generate the exact `.cp
 
 ### 🔌 Wiring it to your AI Client
 
-Once you have compiled your MCP server, you need to connect it to an AI client (like Claude Desktop or VSCode). Because TSAR-MCP uses a strict zero-dependency `stdio` transport model, you can run the server locally or securely across the world over an SSH tunnel.
+Once you have compiled your MCP server, the last step is to register it with an AI client such as Claude Desktop or VSCode. Because TSAR-MCP uses a `stdio` transport model, the same server can run locally, through an SSH tunnel, or behind a proxy without introducing a heavyweight middleware layer.
 
-Read the **[MCPServer Wiring & Transport Guide](./mcp/doc/MCPServer_WiringGuide.md)** to learn how to easily configure your `mcp.json` for local, OpenSSH, or PuTTY/Plink connections.
+Read the **[MCPServer Wiring & Transport Guide](./mcp/doc/MCPServer_WiringGuide.md)** to see how to configure your LLM for local, OpenSSH, or PuTTY/Plink connections.
 
 ---
 
 ### Building the MCP SDK Manually
 
-The core of this SDK is designed around a highly extensible runtime framework. You build new AI capabilities by creating an **aspect**—a single `.cpp` file that defines your tool's personality (name, parameters, and execution logic) while plugging into the underlying native engine. The framework architecture handles all JSON-RPC parsing, memory management, and standard I/O automatically via Inversion of Control. 
+The core of this SDK is designed around filling in a handful of C functions (with C or C++). You build new AI capabilities by creating an **aspect**: a focused `.cpp` file that defines a tool's name, parameters, and execution logic while plugging into the native MCP engine.
+
+The framework handles the rest: JSON-RPC parsing, request dispatch, response shaping, prompt support, memory management, and process life-cycle.
 
 To learn how to quickly scaffold, build, and test your own custom tools by hand, please read the **[MCPServer Aspect Guide](./mcp/doc/MCPServer_AspectGuide.md)**.
 
@@ -69,11 +75,13 @@ nmake -f Makefile.nmake cleanall        # Removes the entire build directory
 
 ## Core Architecture
 
-TSAR-MCP leverages a battle-tested, clean-room C runtime and parsing engine to handle JSON-RPC 2.0 traffic natively:
+TSAR-MCP is built around a simple native execution path: an MCP client sends JSON-RPC over `stdio`, the framework parses and validates it natively, dispatches the request into your aspect, and returns a well-formed response back to the client. There is no Python interpreter, no Node.js runtime, and no external protocol layer sitting between your tool logic and the operating system.
 
-* **Zero-Dependency Transport:** Communicates securely with LLM clients via `ssh -batch`. No sockets, no open web ports, and no custom network code—just OS-level encrypted `stdin/stdout` streams.
-* **The `CommonC` Foundation:** A robust, legacy-hardened C runtime handling memory management and string operations without external library bloat.
-* **Native BNF Parsing Framework:** High-performance, compiled parsing engine (`JSONParser`) that processes LLM payloads with extreme speed and structural safety.
+* **Isolated JSON Transport:** The MCP protocol stream is kept separate from ordinary program output, so aspects can safely link in noisy third-party libraries without corrupting client/server communication.
+* **Native BNF Parsing Framework:** The `JSONParser` engine validates incoming JSON-RPC messages and tool payloads structurally before your aspect logic runs.
+* **Single-File Aspect Model:** New capabilities are typically added by implementing a small set of C or C++ hooks in one `.cpp` file, while the framework handles handshake, dispatch, and response shaping.
+* **Prompt polyfill:** Natively offers prompts as tools for agentic and LLM invocation (initiate `listPrompts` to wake LLM session awareness).
+* **The `CommonC` Foundation:** A robust, legacy-hardened C runtime that handles memory management, strings, and core utility services without external library bloat.
 
 ## Included Examples & Roadmap
 
@@ -101,7 +109,9 @@ Please see **[ARCHITECTURE_MILESTONES.md](./ARCHITECTURE_MILESTONES.md)** for de
 
 ## The Foundation and The Future
 
-This repository is built upon the **TSAR** C-runtime—a legacy-hardened foundation originally designed in 2012 for high-frequency SQL processing (included here as `QueryTool`). By leveraging this battle-tested bedrock, the modern MCP AI aspects inherit enterprise-grade memory management, native BNF parsing engines, and extreme execution speed, while leaving the framework architecture completely open for future bare-metal utilities.
+> *This SDK has a story. When the architect asked an AI assistant to help build a helloWorld MCP server in C, the first response was: "That will be somewhat difficult — there are easier ways." The follow-up: "Why is it difficult??" The AI explained: JSON parsing, raw I/O, strict JSON-RPC back to the client. The reply was: "One moment, let me show you something" — and a battle-tested BNF JSON parser built a decade earlier for high-frequency SQL processing was attached. The AI read the header and immediately reversed course: "Oh, well then it's not so difficult." TSAR-MCP is what came next.*
+
+This repository is built upon the **TSAR** C-runtime—a legacy-hardened foundation originally designed in 2012 for high-frequency SQL processing (included here as `QueryTool`). By leveraging this battle-tested bedrock, the modern MCP AI aspects inherit enterprise-grade memory management, native BNF parsing engines, and steady performance, while leaving the framework architecture completely open for future bare-metal utilities.
 
 ### 🏛️ Legacy Origins: The SourceForge Query Tool
 For those interested in exploring the original 2012 architecture before the MCP AI integrations, the pristine initial import from the legacy SourceForge repository has been preserved in the project history. 
