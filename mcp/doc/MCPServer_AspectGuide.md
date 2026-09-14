@@ -16,7 +16,7 @@ When building a new aspect, start by copying one of our baseline templates depen
 
 * **Asynchronous Background Processing (`MCPServer_setReminder.cpp`):** Start here if your tool requires non-blocking execution (like long-running jobs or delayed events). It demonstrates how to set `MCPServer_Asynchronous = true`, spawn background threads, and safely send notifications back to the client long after the initial request has finished.
 
-* **Bi-directional LLM-code integration aspect (`MCPServer_wordArt.cpp`):** Start here if you are building tools that need to natively query the client's AI. It demonstrates how to use the MCP Sampling flow (`sampling/createMessage`) to delegate tasks (like cognitive reasoning or complex formatting) back to an LLM.
+* **Bi-directional LLM-code integration aspect (`MCPServer_wordArt.cpp`):** Start here if you are building tools that need to natively query the client's AI. It demonstrates how to use the classic MCP Sampling flow (`sampling/createMessage`) and the modern stateless MRTR flow (`input_required`) to delegate tasks (like cognitive reasoning or complex formatting) back to an LLM.
 
 ## Required Sections (in order)
 
@@ -69,6 +69,13 @@ Run tests with: `MCPServer_myAspect.exe Test`
 ### 3. Init / Shutdown
 
 ```cpp
+bool MCPServer_OnStartup()
+        {
+        // Called once at process startup, before the message loop.
+        // Register advanced hooks and always-on setup here.
+        return true;            // Return false to abort startup.
+        }
+
 bool MCPServer_OnInitialize(MCPInputRequest &MCPRequest)
         {
         // Called once when the MCP client sends "initialize".
@@ -174,6 +181,7 @@ These are required by the linker. Copy them verbatim from `MCPServer_helloWorld.
 ```cpp
 void Handle_notification(MCPInputRequest &MCPRequest) { return; }
 char* Handle_sampling_response(MCPInputRequest &MCPRequest) { return NULL; }
+char* Handle_tools_call_resume(MCPInputRequest &MCPRequest) { return NULL; }
 char* Handle_notify_action(void *UserPtr) { return NULL; }
 void Discard_notify_action(void *UserPtr) { return; }
 char* Handle_completion_complete(JSON_Value &idRequest, const char *RefType, const char *RefName, const char *ArgName, const char *ArgValue) { return NULL; }
@@ -182,6 +190,75 @@ MCPPromptInfo_t MCPPromptInfo[] = { {0} };
 char* Handle_prompts_get(JSON_Value &idRequest, const char *PromptName, JSON_Object &Arguments) { return NULL; }
 char* Handle_method(MCPInputRequest &MCPRequest) { return NULL; }
 ```
+
+## Startup: Hooks and Always-On Setup
+
+`MCPServer_OnStartup()` runs once at process startup, before the message loop
+and before any request is dispatched. It is where an aspect performs setup
+that must always be in place regardless of how a client connects — a stateless
+2026-07-28 client discovers the server via `server/discover` and never calls
+`MCPServer_OnInitialize()`, so anything needed on every request belongs here:
+
+* **Advanced hooks** — register `Handle_tools_call_hook` (and the prompt and
+  completion hooks) here.
+* **Attribution** — set `MCPServer_AspectCredit` to the aspect's credit
+  string; the `about_tsar-mcp` tool reports it.
+* **Environment** — read environment variables and resolve paths.
+
+Reserve `MCPServer_OnInitialize()` for logic that genuinely needs the client's
+`initialize` parameters (it only fires for stateful clients).
+
+## MCP Protocol Considerations
+
+### Protocol Version Selection (`ClampMCPProtocolVersion_20251125`)
+
+The build-time macro `ClampMCPProtocolVersion_20251125` (defined in
+`MCPServerCore.h`, overridable per build with
+`-DClampMCPProtocolVersion_20251125=…`) selects the highest protocol version the
+server advertises and speaks by expanding `MCPProtocolVersion_ServerMax`:
+
+| Value | Server ceiling | Effect |
+|-------|----------------|--------|
+| `1` — **shipping default** | `2025-11-25` (stateful) | The stateless 2026-07-28 lane is compiled out: `server/discover` is removed and `MCPProtocolVersion_ServerMax` caps at `2025-11-25`. |
+| `0` | `2026-07-28` (stateless) | Enables the 2026-07-28 protocol — `server/discover`, per-request `_meta` versioning, and MRTR input-required round trips. |
+
+**The default ships as `1`.** The 2026-07-28 stateless/MRTR support is currently
+a **release candidate**; clamping to `2025-11-25` keeps production builds on the
+proven stateful lane until 2026-07-28 is promoted to stable. Build with
+`-DClampMCPProtocolVersion_20251125=0` to opt a binary into the release
+candidate.
+
+The clamp is a ceiling, not a floor — a clamped server still negotiates *down*
+to older clients. The per-request `MCPProtocolVersion()` accessor clamps each
+client's requested version to `MCPProtocolVersion_ServerMax`, so an aspect never
+has to test the macro itself; it simply reports and speaks whatever version the
+framework resolves for the request (as the `about_tsar-mcp` tool's
+Client/Server/Speak lines illustrate).
+
+### Migrating to the 2026-07-28 Protocol
+
+Two steps bring an older aspect up to the 2026-07-28 framework:
+
+**1. Add the two now-required stubs.** `MCPServer_OnStartup()` and
+`Handle_tools_call_resume()` became link-required; an aspect missing either
+fails to **link** — a loud, explicit missing-symbol error, never a silent
+runtime break:
+
+```cpp
+// Process startup hook.
+bool MCPServer_OnStartup() { return true; }
+
+// Input-required resume (dormant).
+char* Handle_tools_call_resume(MCPInputRequest &MCPRequest) { return NULL; }
+```
+
+Paste both verbatim; wire them up only if the aspect needs startup work or
+input-required round trips.
+
+**2. Move initialization from `MCPServer_OnInitialize()` to
+`MCPServer_OnStartup()`**, leaving only logic that needs the client's
+`initialize` parameters in `MCPServer_OnInitialize()` (see *Startup: Hooks and
+Always-On Setup* above).
 
 ## Build System
 
@@ -238,6 +315,8 @@ The core framework (`MCPServer.cpp`) inherently supports:
 * **Async Tools:** Set `MCPServer_Asynchronous = true` and return `Return_MCPOutput_Pending()`. Use `PostMCPOutput()` or `PostNotifyAction()` from your worker thread.
 * **Sampling:** Send `sampling/createMessage` requests to the LLM and catch the result in `Handle_sampling_response()`. Use `FormMCPRequest_sampling()` to build a sampling request.
 * **Prompts & Agentic Polyfill:** Populate `MCPPromptInfo[]` and implement `Handle_prompts_get()`. Use `FormMCPResponse_prompt()` to respond to a prompt request. By default, the framework automatically polyfills these prompts as agentic services (`listPrompts` and `getPrompt` tools), allowing LLMs to seamlessly invoke them even if the client application lacks native prompt support. This behavior can be disabled via the `-DIncludePromptTools=0` compiler flag.
+* **Input-Required Round Trips (MCP 2026-07-28):** Return an `input_required` result built with `FormMCPResult_inputRequired()` (or the `requestState` overload of `FormMCPRequest_sampling()`). The client resumes with a `tools/call` carrying `requestState`, which the framework routes to `Handle_tools_call_resume()`; returning `NULL` from the resume handler yields a standard `-32602` error.
+* **Custom `main()` (`NO_MAIN_MCP`):** Define `NO_MAIN_MCP` to supply your own `main()` and drive the lifecycle explicitly via `main_mcp_init()`, `main_mcp()`, and `main_mcp_deinit()` — the same order the default `MCPServer.cpp` uses. Useful when the aspect must own process startup.
 
 ## Checklist for a New Aspect
 - [ ] Copy `MCPServer_helloWorld.cpp` → `MCPServer_myAspect.cpp`

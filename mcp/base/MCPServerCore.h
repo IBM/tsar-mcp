@@ -14,8 +14,10 @@
 //              MCPServer_Name
 //              MCPServer_Version
 //              MCPServer_Capabilities          - "" or "\"tools\":{...}" or etc.
+//              MCPServer_AspectCredit          - Optional accreditation string.
 //              MCPServer_Asynchronous          - to support Notify.
 //
+//              MCPServer_OnStartup             - at process startup.
 //              MCPServer_OnInitialize          - at MCP Client Initialize.
 //              MCPServer_OnShutdown            - after message handling.
 //
@@ -38,6 +40,7 @@
 //              Handle_resources_unsubscribe    - MCP Client Pulls.
 //              Handle_notification             - Can ignore.
 //              Handle_sampling_response        - Match Id from request.
+//              Handle_tools_call_resume        - Match Id from request (MRTR).
 //              Handle_method                   - resources, logging, etc.
 //
 //              Handle_notify_action            - MCP Server Pushes (w/struct).
@@ -61,8 +64,32 @@
 extern const char *MCPServer_Name;
 extern const char *MCPServer_Version;
 extern const char *MCPServer_Capabilities;      // Additional capabilities.
+extern const char *MCPServer_AspectCredit;      // Set in MCPServer_OnStartup().
 
 extern bool MCPServer_Asynchronous;             // Notify support requires.
+
+// ***************************************************************************
+// **** MCP Protocol Version Policy ******************************************
+// ***************************************************************************
+//
+//      MCPProtocolVersion() returns the effective protocol version 
+//      for a request. ClampMCPProtocolVersion_20251125 clamps the maximum 
+//      supported version to 2025-11-25 (stateful); otherwise, the server 
+//      offers to support the stateless 2026-07-28 protocol. 
+//
+// ***************************************************************************
+
+#ifndef ClampMCPProtocolVersion_20251125
+        #define ClampMCPProtocolVersion_20251125 1
+#endif
+
+#if ClampMCPProtocolVersion_20251125
+        #define MCPProtocolVersion_ServerMax MCPProtocolVersion_20251125
+#else
+        #define MCPProtocolVersion_ServerMax MCPProtocolVersion_20260728
+#endif
+
+int  MCPProtocolVersion(MCPInputRequest &MCPRequest);  // Effective (clamped).
 
 // *************************
 // **** MCP Error Codes ****
@@ -119,7 +146,17 @@ struct tm* MCP_localtime(struct tm *tmTime, time_t tTime);
 // ***************************************************************************
 // **** Init / Shutdown ******************************************************
 // ***************************************************************************
+//
+//      MCPServer_OnStartup() runs once at process startup (before the
+//      message loop) for aspect setup that is independent of the JSON
+//      protocol flow. MCPServer_OnInitialize() runs on the client
+//      initialize handshake; MCPServer_OnShutdown() after the loop ends.
+//
+//      If MCPServer_OnStartup() returns false, the server exits.
+//
+// ***************************************************************************
 
+bool MCPServer_OnStartup();
 bool MCPServer_OnInitialize(MCPInputRequest &MCPRequest);
 bool MCPServer_OnShutdown();
 
@@ -143,6 +180,22 @@ char* FormMCPResponse_ERROR(JSON_Value *idRequest,
 
 // ***************************************************************************
 // **** MCP Tool Directoy Handling *******************************************
+// *********************************
+//
+//      Tools are defined by three sources:
+//
+//              1. Internal tools readTrace, listPrompts, etc.
+//              2. Static tools defined in MCPToolInfo in each aspect.
+//              3. Tools defined dynamically in MCPExternToolInfo[].
+//
+//      Note: MCPExternToolInfo[] must only be modified in the MAIN THREAD;
+//            if not in the main thread, use PostNotifyAction() to regain 
+//            control in the main thread by way of Handle_notify_action().
+//
+//      Note: Use FormMCPNotification_ToolsListChanged() as the return
+//            value from Handle_notify_action() to notify clients after
+//            modifying the tool list.
+//
 // ***************************************************************************
 
 struct MCPToolInfo_t  
@@ -155,11 +208,38 @@ struct MCPToolInfo_t
         };
 
 extern const unsigned MCPToolInfoCount;
-
 extern MCPToolInfo_t MCPToolInfo[];
+
+// ----------------------------------------------------------------
+// ---- Extern Tools (Optional -- aspect populates at runtime) ----
+// ----------------------------------------------------------------
+
+extern unsigned MCPExternToolInfoCount;         // Defaults to zero.
+extern MCPToolInfo_t* MCPExternToolInfo;        // Defaults to NULL.
+
+// ------------------
+// Tools List Changed
+// ------------------
+
+char* FormMCPNotification_ToolsListChanged();
 
 // ***************************************************************************
 // **** MCP Prompt Directory Handling ****************************************
+// ************************************
+//
+//      Prompts are defined by two sources:
+//
+//              1. Static prompts defined in MCPPromptInfo in each aspect.
+//              2. Prompts defined dynamically in MCPExternPromptInfo[].
+//
+//      Note: MCPExternPromptInfo[] must only be modified in the MAIN THREAD;
+//            if not in the main thread, use PostNotifyAction() to regain 
+//            control in the main thread by way of Handle_notify_action().
+//
+//      Note: Use FormMCPNotification_PromptsListChanged() as the return
+//            value from Handle_notify_action() to notify clients after
+//            modifying the prompt list.
+//            
 // ***************************************************************************
 
 struct MCPPromptInfo_t
@@ -171,8 +251,20 @@ struct MCPPromptInfo_t
         };                              //            "required":true} or {0}.
 
 extern const unsigned MCPPromptInfoCount;
-
 extern MCPPromptInfo_t MCPPromptInfo[];
+
+// ------------------------------------------------------------------
+// ---- Extern Prompts (Optional -- aspect populates at runtime) ----
+// ------------------------------------------------------------------
+
+extern unsigned MCPExternPromptInfoCount;       // Defaults to zero.
+extern MCPPromptInfo_t* MCPExternPromptInfo;    // Defaults to NULL.
+
+// --------------------
+// Prompts List Changed
+// --------------------
+
+char* FormMCPNotification_PromptsListChanged();
 
 // ***************************************************************************
 // **** MCP Resource Directory Handling **************************************
@@ -187,7 +279,6 @@ struct MCPResourceInfo_t
         };
 
 extern const unsigned MCPResourceInfoCount;
-
 extern MCPResourceInfo_t MCPResourceInfo[];
 
 struct MCPResourceTemplateInfo_t
@@ -199,7 +290,6 @@ struct MCPResourceTemplateInfo_t
         };
 
 extern const unsigned MCPResourceTemplateInfoCount;
-
 extern MCPResourceTemplateInfo_t MCPResourceTemplateInfo[];
 
 // ***************************************************************************
@@ -329,6 +419,32 @@ bool PostResourceUpdated(const char *URI);
 void Handle_notification(MCPInputRequest &MCPRequest);
 
 // ***************************************************************************
+// **** MRTR input_required (2026-07-28) *************************************
+// ***************************************************************************
+//
+//      FormMCPResult_inputRequired() is the generic input_required RESULT
+//      envelope: it answers the ORIGINAL request id, embeds one client-side
+//      request (Method + pre-formed ParamsJSON, injected verbatim) keyed by
+//      requestState, and echoes the token in requestState. A generic
+//      MCPRoundTripRequest calls this directly; a sampling round trip calls
+//      the FormMCPRequest_sampling overload below, which builds the
+//      sampling/createMessage params and wraps them via this function.
+//
+//              1. Client -> Server: tools/call
+//              2. Client <- Server: input_required result (w/requestState)
+//              3. Client -> Server: tools/call resume (w/requestState)
+//              4. Client <- Server: result
+//
+// ***************************************************************************
+
+char* FormMCPResult_inputRequired(JSON_Value &idRequest,
+                                  JSON_Value_String &requestState,
+                                  const char *Method,
+                                  const char *ParamsJSON);
+
+char* Handle_tools_call_resume(MCPInputRequest &MCPRequest);  // Ret MCPOutput.
+
+// ***************************************************************************
 // **** Sampling Response Handlers *******************************************
 // *********************************
 //
@@ -351,13 +467,23 @@ char* FormMCPRequest_sampling(JSON_Value &idRequest,
                               const char *UserMessage,
                               int MaxTokens);
 
+
+char* FormMCPRequest_sampling(JSON_Value &idRequest,
+                              JSON_Value_String &requestState,
+                              const char *SystemPrompt,
+                              const char *UserMessage,
+                              int MaxTokens);
+
 char* Handle_sampling_response(MCPInputRequest &MCPRequest); // Ret MCPOutput.
 
 // ***************************************************************************
 // **** Notify Action ********************************************************
 // ********************
 //
-//      Only active when MCPServer is running in Asynchronious mode.
+//      >> Only active when MCPServer is running in Asynchronious mode.
+//
+//      Call PostNotifyAction() from a thread to regain control in
+//      Handle_notify_action() in the MAIN THREAD.
 //
 //      Two ways to send a deferred response from a worker thread:
 //
@@ -370,8 +496,9 @@ char* Handle_sampling_response(MCPInputRequest &MCPRequest); // Ret MCPOutput.
 //
 //      Note: (B) caller must include the correct JSON-RPC id.
 //
-//      Note: Notify servers may be started in MCPServer_OnInitialize()
-//            and ended in: MCPServer_OnShutdown().
+//      Note: Handle_notify_action() must return either MCPOutput which will
+//            be sent to the MCP client, or Return_MCPOutput_Pending() if
+//            nothing needs to be returned.
 //
 // ***************************************************************************
 
@@ -435,6 +562,46 @@ char* Return_MCPOutput_Pending();               // Special "MCPOutput" value.
 bool PostMCPOutput(char **MCPOutput);           // Send MCPOutput to client.
 
 // ***************************************************************************
+// **** MCP Main (Override) **************************************************
+// *************************
+//
+//      An aspect may define its own main(). Set NO_MAIN_MCP and call
+//      main_mcp_init(), main_mcp(), and main_mcp_deinit() in the 
+//      way the default MCPServer.cpp main() does. 
+//
+//      main_mcp_init() returns 0 on success, or non-zero to abort
+//      (skip main_mcp()). On a non-zero return it rolls back any
+//      partial setup, leaving process state as it was on entry.
+//      main_mcp_deinit() is still safe to call in that case (no-op),
+//      and should always be called after a successful init.
+//
+//      After a successful main_mcp_init(): tracing routes to the
+//      trace file (TERROR, etc.), JSON parsing is available, and
+//      stdout is safely redirected to stderr so noisy output does
+//      not interfere with the MCP JSON stream.
+//
+//      Once main_mcp_deinit() runs, stdout is restored to normal,
+//      JSON parsing is disabled, and tracing reverts to stderr.
+//
+//      "Main thread" throughout this contract means the thread that
+//      runs main_mcp() (i.e. pumps MCPServerMain) -- the primary MCP
+//      thread. It need not be the OS main thread; main_mcp() may run
+//      on a worker, which then owns all "main thread" obligations.
+//      Constraints: only one primary MCP thread at a time, and
+//      main_mcp_init()/main_mcp_deinit() must bracket it (never run
+//      concurrently with the loop).
+//
+// ***************************************************************************
+
+#ifdef NO_MAIN_MCP
+
+int main_mcp_init(int argc, const char *argv[]);
+int main_mcp();
+void main_mcp_deinit();
+
+#endif
+
+// ***************************************************************************
 // **** MCP Test *************************************************************
 // ***************************************************************************
 
@@ -451,7 +618,10 @@ extern const char* MCPInputTestRequests[];  // Array of requests, NULL term.
      
         Three optional function-pointer hooks let an aspect intercept the
         full MCPInputRequest before the standard handlers see it. Each hook
-        defaults to NULL (disabled). Set them in MCPServer_OnInitialize().
+        defaults to NULL (disabled). Set them in MCPServer_OnStartup() --
+        a stateless 2026-07-28 discover client never calls
+        MCPServer_OnInitialize(), but MCPServer_OnStartup() always runs
+        once at process startup, before any request is dispatched.
      
         Pattern:
              1. MCPServer.cpp extracts Id, ToolName/PromptName, Arguments

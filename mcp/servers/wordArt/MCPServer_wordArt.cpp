@@ -12,11 +12,19 @@
 //      Basic Sample: Demonstrates LLM sampling using only the core
 //      MCPServerCore.h primitives.
 //
-//      Sampling Flow:
+//      Sampling Flow (2024-11-05):
 //              1. Client -> Server: tools/call (wordArt) [request_id]
 //              2. Server -> Client: sampling/createMessage [sample_id]
 //              3. Client -> Server: sampling response (LLM output) [sample_id]
 //              4. Server -> Client: tool result (ASCII art) [request_id]
+//
+//      MRTR Flow (2026-07-28):
+//              1. Client -> Server: tools/call (wordArt) [request_id]
+//              2. Server -> Client: input_required result, sampling request
+//                                   embedded, requestState token [request_id]
+//              3. Client -> Server: tools/call resume, inputResponses (LLM
+//                                   output) + requestState [resume_id]
+//              4. Server -> Client: tool result (ASCII art) [resume_id]
 //
 
 #include <stdio.h>
@@ -29,7 +37,7 @@
 #include <MCPServerCore.h>
 
 const char *MCPServer_Name = "MCPServer_wordArt";
-const char *MCPServer_Version = "0.1.0";
+const char *MCPServer_Version = "0.1.1";
 const char *MCPServer_Capabilities = "\"tools\":{}";
 
 bool MCPServer_Asynchronous = false;
@@ -51,15 +59,81 @@ static const char* MCPInputTestRequest_WordArt =
          " }"
          "}";
 
+// ====================================================
+// Matched: MCPInputTestRequest_WordArt_20260728 / 
+//          MCPInputTestRequest_WordArt_20260728_Resume
+//
+//   requestState must match the emitter's minted
+//   token: deterministic "Smpl_5_1" because the 
+//   2026-07-28 request runs first (counter is 1).
+//
+ 
+static const char* MCPInputTestRequest_WordArt_20260728 =
+        "{"
+         " \"jsonrpc\": \"2.0\","
+         " \"id\": 5,"
+         " \"method\": \"tools/call\","
+         " \"params\": {"
+         "   \"name\": \"wordArt\","
+         "   \"arguments\": { \"text\": \"Hello\", \"style\": \"big\" },"
+         "   \"_meta\": {"
+         "     \"io.modelcontextprotocol/protocolVersion\": \"2026-07-28\""
+         "   }"
+         " }"
+         "}";
+
+static const char* MCPInputTestRequest_WordArt_20260728_Resume =
+        "{"
+         " \"jsonrpc\": \"2.0\","
+         " \"id\": 7,"
+         " \"method\": \"tools/call\","
+         " \"params\": {"
+         "   \"name\": \"wordArt\","
+         "   \"arguments\": { \"text\": \"Hello\", \"style\": \"big\" },"
+         "   \"inputResponses\": {"
+         "     \"Smpl_5_1\": {"
+         "       \"action\": \"accept\","
+         "       \"content\": { \"role\": \"assistant\","
+         "                      \"content\": { \"type\": \"text\","
+         "                                     \"text\": \"HELLO-ART\" } }"
+         "     }"
+         "   },"
+         "   \"requestState\": \"Smpl_5_1\","
+         "   \"_meta\": {"
+         "     \"io.modelcontextprotocol/protocolVersion\": \"2026-07-28\""
+         "   }"
+         " }"
+         "}";
+
+// ====================================================
+
 const char* MCPInputTestRequests[] =
         {
-        MCPInputTestRequest_WordArt,
+        MCPInputTestRequest_WordArt_20260728,           // Mints Smpl_5_1.
+        MCPInputTestRequest_WordArt_20260728_Resume,    // Resumes Smpl_5_1.
+        MCPInputTestRequest_WordArt,                    // Classic 2024-11-05.
         NULL
         };
 
 // ***************************************************************************
 // **** Init / Shutdown ******************************************************
 // ***************************************************************************
+
+static char* WordArt_tools_call_hook(MCPInputRequest &MCPRequest,
+                                     JSON_Value &idRequest,
+                                     const char *ToolName,
+                                     JSON_Object &Arguments);
+
+bool MCPServer_OnStartup()
+        {
+        static const char *ProcName = "MCPServer_OnStartup";
+        TINFO(("%s: %s Startup",ProcName,MCPServer_Name));
+        // --------------------------------------
+        // ---- Set MCPServer Advanced Hooks ----
+        // --------------------------------------
+        Handle_tools_call_hook = WordArt_tools_call_hook;
+        return true;
+        }
 
 bool MCPServer_OnInitialize(MCPInputRequest &MCPRequest)
         {
@@ -76,7 +150,7 @@ bool MCPServer_OnShutdown()
         }
 
 // ***************************************************************************
-// **** MCP Directoy Handling ************************************************
+// **** MCP Directory Handling ***********************************************
 // ***************************************************************************
 
 const unsigned MCPToolInfoCount = 1;
@@ -134,7 +208,7 @@ struct _ActiveSampling
         // -----------------
         _ActiveSampling() {isSampling = false; idRequest=NULL;}
         bool BeginSampling(JSON_Value &_idRequest, JSON_Object &_Arguments);
-        bool GenerateSamplingId(JSON_Value &idRequest);
+        bool GenerateSamplingId(JSON_Value &_idRequest);
         void EndSampling() 
                 {
                 idRequest = NULL;
@@ -190,18 +264,24 @@ bool _ActiveSampling::BeginSampling(JSON_Value &_idRequest,
         return isSampling;
         }
 
-bool _ActiveSampling::GenerateSamplingId(JSON_Value &idRequest)
+bool _ActiveSampling::GenerateSamplingId(JSON_Value &_idRequest)
         {
         // --------------------------
         // ---- Unique Id Number ----
         // --------------------------
         static unsigned UniqueCounter = 0;
         unsigned UniqueNumber = ++UniqueCounter;
-        // --------------------------------------------
-        // ---- Build: Smpl_RequestId_UniqueNumber ----
-        // --------------------------------------------
+        // -------------------------------------------------------------------
+        // ---- Build: Smpl_RequestId_UniqueNumber ---------------------------
+        // ----------------------------------------
+        // NOTE: This token is sequential/guessable -- fine over stdio, 
+        //       In a hostile environment (HTTP / MCP Gateway) requestState
+        //       must not be guessable: swap the UniqueCounter for a CSPRNG
+        //       sequence (/dev/urandom). It is only a one-time nonce for a
+        //       lookup table -- never deciphered -- so it needn't be signed.
+        // -------------------------------------------------------------------
         MemoryPrintf Canvas;
-        Canvas.printf("Smpl_%s_%u",id2string(idRequest),UniqueNumber);
+        Canvas.printf("Smpl_%s_%u",id2string(_idRequest),UniqueNumber);
         const char *idString = Canvas.GetBuffer();
         if (idString)
                 {
@@ -250,24 +330,25 @@ static _ActiveSampling* BeginSampling(JSON_Value &idRequest,
         return Sampling;
         }
 
-static _ActiveSampling* FindSampling(JSON_Value &idRequest)
+static _ActiveSampling* FindSampling(JSON_Value &id)
         {
         static const char *ProcName = "FindSampling";
-        unsigned i=0;
-        for (;i < MAXACTIVESAMPLINGS; i++)
+        for (unsigned i=0; i < MAXACTIVESAMPLINGS; i++)
                 {
-                if (idcmp(ActiveSamplings[i].idSampling,idRequest))
+                // isSampling skips a freed slot's stale idSampling token.
+                if (ActiveSamplings[i].isSampling &&
+                    idcmp(ActiveSamplings[i].idSampling,id))
                         {
-                        TINFO(("%s: Complete Sampling [%s] in slot: %d",
+                        TINFO(("%s: Matched Sampling [%s] in slot: %d",
                                 ProcName,
-                                id2string(idRequest),
+                                id2string(id),
                                 i));
                         return &ActiveSamplings[i];
                         }
                 }
-        TERROR(("%s: State Error: No matching sampling for: %s",
+        TERROR(("%s: No matching sampling for: %s",
                 ProcName,
-                id2string(idRequest)));
+                id2string(id)));
         return NULL;
         }
 
@@ -280,7 +361,8 @@ static void EndSampling(_ActiveSampling *Sampling)
 // ==== MCPtool_wordArt ====
 // ========================= 
 
-char* MCPtool_wordArt(JSON_Value &idRequest, JSON_Object &Arguments)
+// ---- Version selects the protocol: 2024-11-05 sampling vs. 2026-07-28 MRTR.
+char* MCPtool_wordArt(JSON_Value &idRequest, JSON_Object &Arguments, int Version)
         {
         const char *ProcName = "MCPtool_wordArt";
         /* ----- INPUT -----------------------------------------------
@@ -294,21 +376,6 @@ char* MCPtool_wordArt(JSON_Value &idRequest, JSON_Object &Arguments)
           }
         }
         ----------------------------------------------------------- */
-        // ---------------------------------------------------------------
-        // ---- Claim a sampling slot and stash idRequest for later.  ----
-        // ---- If the client has no LLM, FormMCPRequest_sampling will  ----
-        // ---- still be sent; the client must reject it.              ----
-        // ---------------------------------------------------------------
-        _ActiveSampling *Sampling = BeginSampling(idRequest,Arguments);
-        if (!Sampling)
-                {
-                TERROR(("%s: Couldn't Record Sampling (%s)",ProcName,
-                        id2string(idRequest)));
-                return FormMCPResponse_ERROR(&idRequest,
-                                             MCPErrorCode_Exception,
-                                             "Invalid State",
-                                             "Couldn't Record Sampling");
-                }
         // ----------------------------
         // ---- Validate Arguments ----
         // ----------------------------
@@ -317,7 +384,6 @@ char* MCPtool_wordArt(JSON_Value &idRequest, JSON_Object &Arguments)
         if (!Style || !*Style) Style = "big";
         if (!Text)
                 {
-                EndSampling(Sampling);                
                 TERROR(("%s: Missing Argument: 'text'",ProcName));
                 return FormMCPResponse_ERROR(&idRequest,
                                              MCPErrorCode_InvalidParms,
@@ -339,15 +405,47 @@ char* MCPtool_wordArt(JSON_Value &idRequest, JSON_Object &Arguments)
                 "4. Incorporate motifs and patterns iconic to the chosen style.",
                 Style);
         TINFO(("%s: Requesting wordArt (style=%s): %s",ProcName,Style,Text));
-        // ---------------------------------------------------------
-        // ---- Return the sampling request as MCPOutput.        ----
-        // ---- The framework sends it to the client's LLM.      ----
-        // ---- Handle_sampling_response() delivers the result.  ----
-        // ---------------------------------------------------------
-        char *MCPOutput = FormMCPRequest_sampling(Sampling->idSampling,
-                                                  SysPrompt.GetBuffer(),
-                                                  Text,
-                                                  1024);
+        // ------------------------------------------------------------
+        // ---- Inputs are valid -- claim a sampling slot and stash the
+        // ---- original id for the deferred response. If the client has
+        // ---- no LLM the sampling request is still sent; the client
+        // ---- must reject it.
+        // ------------------------------------------------------------
+        _ActiveSampling *Sampling = BeginSampling(idRequest,Arguments);
+        if (!Sampling)
+                {
+                TERROR(("%s: Couldn't Record Sampling (%s)",ProcName,
+                        id2string(idRequest)));
+                return FormMCPResponse_ERROR(&idRequest,
+                                             MCPErrorCode_Exception,
+                                             "Invalid State",
+                                             "Couldn't Record Sampling");
+                }
+        // ---------------------------------------------------------------
+        // ---- 2024-11-05: emit a sampling/createMessage request        ----
+        // ----             (id = idSampling); the sampling RESPONSE     ----
+        // ----             completes it (Handle_sampling_response).     ----
+        // ---- 2026-07-28: emit an input_required result on the         ----
+        // ----             ORIGINAL id, embedding the sampling request  ----
+        // ----             and carrying the idSampling token as         ----
+        // ----             requestState; a resume tools/call completes  ----
+        // ----             it (Handle_tools_call_resume).               ----
+        // ---------------------------------------------------------------
+        char *MCPOutput;
+        if (Version >= MCPProtocolVersion_20260728)
+                {
+                MCPOutput = FormMCPRequest_sampling(idRequest,
+                                                    Sampling->idSampling,
+                                                    SysPrompt.GetBuffer(),
+                                                    Text,
+                                                    1024);
+                }
+        else    {
+                MCPOutput = FormMCPRequest_sampling(Sampling->idSampling,
+                                                    SysPrompt.GetBuffer(),
+                                                    Text,
+                                                    1024);
+                }
         if (!MCPOutput)
                 {
                 EndSampling(Sampling);                
@@ -363,18 +461,29 @@ char* MCPtool_wordArt(JSON_Value &idRequest, JSON_Object &Arguments)
 // ---------------------------------------------------------------------------
 // ---- Handle_tools_call ----------------------------------------------------
 // ---------------------------------------------------------------------------
+//
+//      wordArt must choose sampling (2024-11-05) vs. MRTR input_required
+//      (2026-07-28) from the per-request protocol version, which only the
+//      advanced hook receives. So wordArt dispatches through the hook; the
+//      plain handler stays a stub (the core links it unconditionally).
+//
+// ---------------------------------------------------------------------------
+
+static char* WordArt_tools_call_hook(MCPInputRequest &MCPRequest,
+                                     JSON_Value &idRequest,
+                                     const char *ToolName,
+                                     JSON_Object &Arguments)
+        {
+        if (strcmp(ToolName,"wordArt") != 0) return NULL;
+        int ProtocolVersion = MCPProtocolVersion(MCPRequest);
+        return MCPtool_wordArt(idRequest,Arguments,ProtocolVersion);
+        }
 
 char* Handle_tools_call(JSON_Value &idRequest,
                         const char *ToolName, 
                         JSON_Object &Arguments)
         {
-        const char *ProcName = "Handle_tools_call";
-        char *MCPOutput = NULL;
-        if (strcmp(ToolName,"wordArt") == 0)
-                {
-                MCPOutput = MCPtool_wordArt(idRequest,Arguments);
-                }
-        return MCPOutput;
+        return NULL;                            // wordArt dispatches via hook.
         }
 
 // ****************************************************************************
@@ -387,6 +496,38 @@ void Handle_notification(MCPInputRequest &MCPRequest)
         const char *Method = MCPRequest.Get_method();
         TDEBUG(("%s: Ignoring: %s",ProcName,Method));
         return;
+        }
+
+// ****************************************************************************
+// **** CompleteWordArt (shared completion tail) *****************************
+// ****************************************************************************
+//
+//      Both protocols converge here; only the answer id differs:
+//
+//        2024-11-05: the ORIGINAL tools/call id (never yet answered).
+//        2026-07-28: the RESUME id (original answered by input_required).
+//
+// ****************************************************************************
+
+static char* CompleteWordArt(JSON_Value *answerId,
+                             _ActiveSampling *Sampling,
+                             const char *ArtText)
+        {
+        static const char *ProcName = "CompleteWordArt";
+        char *MCPOutput;
+        if (!ArtText || !*ArtText)
+                {
+                TERROR(("%s: No text in sampling result",ProcName));
+                MCPOutput = FormMCPResponse_Text(answerId,
+                                                 "No output returned by LLM",
+                                                 true);
+                }
+        else    {
+                TINFO(("%s: wordArt complete",ProcName));
+                MCPOutput = FormMCPResponse_Text(answerId,ArtText);
+                }
+        EndSampling(Sampling);
+        return MCPOutput;
         }
 
 // ****************************************************************************
@@ -432,29 +573,77 @@ char* Handle_sampling_response(MCPInputRequest &MCPRequest)
         // -----------------------------------
         // ---- Extract art from result   ----
         // -----------------------------------
-        const char *ArtText = NULL;
-        JSON_Object *Result = MCPRequest.Get_result();
-        if (Result)
+        const char *ArtText = ExtractSampleText(MCPRequest);
+        // --------------------------------------------------------------------
+        // ---- Sampling and MRTR protocols converge; answer the idRequest ----
+        // --------------------------------------------------------------------
+        return CompleteWordArt(Sampling->idRequest,Sampling,ArtText);
+        }
+
+// ****************************************************************************
+// **** Handle_tools_call_resume (MRTR 2026-07-28) ***************************
+// ****************************************************************************
+
+char* Handle_tools_call_resume(MCPInputRequest &MCPRequest)
+        {
+        const char *ProcName = "Handle_tools_call_resume";
+        /* ----- INPUT (2026-07-28 MRTR resume) ----------------------
+        {
+          "jsonrpc": "2.0",
+          "id": 7,
+          "method": "tools/call",
+          "params": {
+            "name": "wordArt",
+            "arguments": { "text": "Hello", "style": "big" },
+            "inputResponses": {
+              "Smpl_3_1": {
+                "action": "accept",
+                "content": { "role":"assistant",
+                             "content": { "type":"text", "text":"..." } }
+              }
+            },
+            "requestState": "Smpl_3_1"
+          }
+        }
+        ----------------------------------------------------------- */
+        // ------------------------------------------------------------
+        // ---- The resume carries a NEW id; the original id was     ----
+        // ---- already answered by the input_required result, so we ----
+        // ---- answer THIS (resume) id when the art is complete.    ----
+        // ------------------------------------------------------------
+        JSON_Value *idResume = MCPRequest.Get_id();
+        if (!idResume)
                 {
-                JSON_Object *Content = Result->Find_member_object("content");
-                if (Content)
-                        {
-                        ArtText = Content->Find_member_string("text");
-                        }
+                TERROR(("%s: No Id in Request",ProcName));
+                return FormMCPResponse_ERROR(idResume,
+                                             MCPErrorCode_InvalidRequest,
+                                             "No Id",
+                                             "No Id found");
                 }
-        if (!ArtText || !*ArtText)
+        // -------------------------------------------------------
+        // ---- Match the resume to its slot via requestState. ----
+        // ---- (Slot lookup only -- the inputResponses entry  ----
+        // ----  is read positionally below, not by this key.) ----
+        // -------------------------------------------------------
+        JSON_Value *requestState = MCPRequest.Get_param("requestState");
+        _ActiveSampling *Sampling = requestState ? FindSampling(*requestState)
+                                                 : NULL;
+        if (!Sampling)
                 {
-                TERROR(("%s: No text in sampling result",ProcName));
-                char *MCPOutput = FormMCPResponse_Text(Sampling->idRequest,
-                                                       "No output returned by LLM",
-                                                       true);
-                EndSampling(Sampling);
-                return MCPOutput;
+                return FormMCPResponse_ERROR(idResume,
+                                             MCPErrorCode_Exception,
+                                             "Invalid State",
+                                             "No matching sampling request");
                 }
-        TINFO(("%s: wordArt complete",ProcName));
-        char *MCPOutput = FormMCPResponse_Text(Sampling->idRequest,ArtText);
-        EndSampling(Sampling);
-        return MCPOutput;
+        // -----------------------------------------------------------
+        // ---- ExtractSampleText() reads the sole inputResponses  ----
+        // ---- entry positionally, spanning both sampling shapes. ----
+        // -----------------------------------------------------------
+        const char *ArtText = ExtractSampleText(MCPRequest);
+        // --------------------------------------------------------------------
+        // ---- Sampling and MRTR protocols converge; answer the idResume. ----
+        // --------------------------------------------------------------------
+        return CompleteWordArt(idResume,Sampling,ArtText);
         }
 
 // ****************************************************************************

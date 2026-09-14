@@ -9,9 +9,7 @@
  * SPDX-License-Identifier: MIT
  */
 //
-//
-//
-// Note: For Microsoft, link with: Microsoft SDK\lib\DbgHelp.Lib
+// Note: See header for compiler/linker requirements.
 //
 
 #include <stdio.h>
@@ -1051,7 +1049,7 @@ int InvocationCallStack::GetNumEntries()
 bool InvocationCallStack::Snapshot()
         {
         nEntries = backtrace(CallStack,MAX_CALLSTACK_ENTRIES);
-        for (unsigned i=0; i < nEntries/2; i++)
+        for (int i=0; i < nEntries/2; i++)
                 {
                 void *Hold = CallStack[i];
                 CallStack[i] = CallStack[nEntries - i - 1];

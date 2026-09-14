@@ -1,5 +1,10 @@
 # ============================================================================
 # MCPServer Master Makefile (GNU Make)
+#
+# TSAR (Tools Slightly Above the Runtime)
+# Copyright (c) 2026 International Business Machines Corporation
+# Copyright (c) 2026 Eric Kass
+# SPDX-License-Identifier: MIT
 # ============================================================================
 #
 # Builds each MCPServer aspect as a separate executable.
@@ -70,10 +75,13 @@ CORE_OBJS = \
 COMMONC_OBJS = \
     $(O)/ASThread.o \
     $(O)/AutoString.o \
+    $(O)/cURLRunner.o \
     $(O)/ebcdic.o \
     $(O)/LevelTrace.o \
     $(O)/LinkList.o \
-    $(O)/MEMprintf.o
+    $(O)/MEMprintf.o \
+    $(O)/popenNT.o \
+    $(O)/SnapStack.o
 
 COMMONC_TIMER_OBJS = \
     $(O)/TimerThread.o

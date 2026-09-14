@@ -27,6 +27,17 @@
 
 #include <JSONObject.h>
 
+// ******************************
+// **** MCP Protocol Version ****
+// ******************************
+
+#define MCPProtocolVersion_Invalid   0          // protocolVersion malformed.
+#define MCPProtocolVersion_20241105  20241105
+#define MCPProtocolVersion_20251125  20251125   // "stateful"
+#define MCPProtocolVersion_20260728  20260728   // "stateless"
+
+int MCPProtocolVersionInt(const char *Version); // "YYYY-MM-DD" to YYYYMMDD. 
+
 // *************************
 // **** MCPInputRequest ****
 // *************************
@@ -57,6 +68,10 @@ class MCPInputRequest
                 bool Get_param_int(int *iParam, const char *Key);
                 const char* Get_param_string(const char *Key);
                 JSON_Object* Get_param_object(const char *Key);
+                // ------------------------------------------
+                // ---- _meta protocolVersion, or Legacy ----
+                // ------------------------------------------
+                int Version();          // Raw per-request report (no policy).
         };
 
 // ***************************************
@@ -97,6 +112,21 @@ MCPInputRequest* ParseJSON_MSCPInput(const char *JSONBuffer);
 bool ValidateJSON(const char *JSONBuffer);      // Parses and Discards.
 
 bool TraceJSON(const char *JSONBuffer, bool Pretty=true);
+
+// *******************************************************************
+// **** ExtractSampleText ********************************************
+// ************************
+//
+//      LLM text from a sampling response, spanning both protocol
+//      shapes so callers stay version-agnostic:
+//        Classic (2024-11-05 / external): result.content.text
+//        MRTR    (2026-07-28 resume):     inputResponses[0]
+//                                         .content.content.text
+//      A flattened .content.text is tolerated. NULL if absent.
+//
+// *******************************************************************
+
+const char* ExtractSampleText(MCPInputRequest &MCPRequest);
 
 // ***************************************************************************
 // **** JSON Object Print Function (See JSONObject.h for others) *************

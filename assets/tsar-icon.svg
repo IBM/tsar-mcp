@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <!-- Background -->
+  <rect width="512" height="512" fill="#2a4569"/>
+
+  <!-- Cliff Edge -->
+  <path d="M 120 360 L 512 360 L 512 512 L 280 512 Z" fill="#3a414a"/>
+  <path d="M 140 360 L 280 512 L 200 512 L 120 360 Z" fill="#2d333b"/>
+
+  <!-- Glowing Power Cable -->
+  <path d="M 330 260 C 480 260, 480 120, 330 120" fill="none" stroke="#4db8ff" stroke-width="16" stroke-linecap="round"/>
+  <path d="M 330 260 C 480 260, 480 120, 330 120" fill="none" stroke="#ffeb82" stroke-width="4" stroke-dasharray="12 8"/>
+
+  <!-- Circuit Brain -->
+  <g transform="translate(150, 40)">
+    <!-- Brain Outline -->
+    <path d="M 70 120 C 10 120, 10 30, 80 30 C 100 0, 170 0, 180 30 C 250 30, 250 120, 180 120 C 170 150, 120 150, 100 120 Z" fill="none" stroke="#e0bc46" stroke-width="10" stroke-linejoin="round"/>
+    
+    <!-- Internal Circuit Paths -->
+    <path d="M 50 70 L 90 70 L 110 50 L 150 50" fill="none" stroke="#e0bc46" stroke-width="6" stroke-linejoin="round"/>
+    <path d="M 70 90 L 100 90 L 130 110 L 160 110" fill="none" stroke="#e0bc46" stroke-width="6" stroke-linejoin="round"/>
+    <path d="M 120 30 L 120 70 L 150 90" fill="none" stroke="#e0bc46" stroke-width="6" stroke-linejoin="round"/>
+    
+    <!-- Circuit Nodes (Glowing Blue) -->
+    <circle cx="50" cy="70" r="8" fill="#4db8ff"/>
+    <circle cx="110" cy="50" r="8" fill="#4db8ff"/>
+    <circle cx="150" cy="50" r="8" fill="#4db8ff"/>
+    <circle cx="70" cy="90" r="8" fill="#4db8ff"/>
+    <circle cx="130" cy="110" r="8" fill="#4db8ff"/>
+    <circle cx="160" cy="110" r="8" fill="#4db8ff"/>
+    <circle cx="150" cy="90" r="8" fill="#4db8ff"/>
+  </g>
+
+  <!-- Golden MCP Console -->
+  <g transform="translate(130, 210)">
+    <!-- Outer Chassis -->
+    <rect x="0" y="0" width="220" height="150" rx="12" fill="#b38a22"/>
+    <rect x="4" y="4" width="212" height="142" rx="10" fill="#e0bc46"/>
+    <rect x="8" y="8" width="204" height="134" rx="8" fill="#fcd756"/>
+    
+    <!-- Glowing Screen -->
+    <rect x="20" y="20" width="140" height="85" rx="6" fill="#c4f1f9"/>
+    <rect x="25" y="25" width="130" height="75" rx="4" fill="#ffffff"/>
+    
+    <!-- TSAR-MCP Text -->
+    <text x="90" y="52" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="22" font-weight="900" fill="#2a4569" text-anchor="middle" letter-spacing="1">TSAR</text>
+    <text x="90" y="88" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="38" font-weight="900" fill="#d19c1d" text-anchor="middle" letter-spacing="2">MCP</text>
+    
+    <!-- Vents on the Right -->
+    <rect x="175" y="25" width="25" height="6" rx="3" fill="#8f6911"/>
+    <rect x="175" y="40" width="25" height="6" rx="3" fill="#8f6911"/>
+    <rect x="175" y="55" width="25" height="6" rx="3" fill="#8f6911"/>
+    
+    <!-- Dials and Buttons -->
+    <circle cx="35" cy="122" r="10" fill="#8f6911"/>
+    <circle cx="35" cy="122" r="6" fill="#b38a22"/>
+    <circle cx="65" cy="122" r="5" fill="#8f6911"/>
+
+    <!-- IBM Text Logo -->
+    <text x="120" y="128" font-family="Helvetica, Arial, sans-serif" font-size="18" font-weight="900" fill="#5c4206" text-anchor="middle" letter-spacing="2">IBM</text>
+  </g>
+</svg>

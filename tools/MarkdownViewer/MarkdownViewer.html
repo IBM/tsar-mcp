@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<!--
+ * TSAR (Tools Slightly Above the Runtime)
+ * Filename: MarkdownViewer.html
+ *
+ * Copyright (c) 2026 International Business Machines Corporation
+ * Copyright (c) 2026 Eric Kass
+ *
+ * SPDX-License-Identifier: MIT
+ *
+ * This utility loads the following third-party libraries at runtime:
+ *   - marked.js (MIT License) - https://github.com/markedjs/marked
+ *   - highlight.js (BSD-3-Clause) - https://github.com/highlightjs/highlight.js
+ *   - KaTeX (MIT License) - https://github.com/KaTeX/KaTeX
+-->
+<html lang="en">
+<head>
+ <meta charset="UTF-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+ <title>TSAR-MCP Markdown Viewer</title>
+ <link rel="icon" type="image/svg+xml" href="https://ibm.github.io/tsar-mcp/assets/tsar-icon.svg">
+ 
+  <!-- Markdown & Highlight.js -->
+ <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js" integrity="sha384-NNQgBjjuhtXzPmmy4gurS5X7P4uTt1DThyevz4Ua0IVK5+kazYQI1W27JHjbbxQz" crossorigin="anonymous"></script>
+ <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" integrity="sha384-F/bZzf7p3Joyp5psL90p/p89AZJsndkSoGwRpXcZhleCWhd8SnRuoYo4d0yirjJp" crossorigin="anonymous"></script>
+ <!-- highlight.js themes: both SRI-pinned; toggled via the `disabled` property -->
+ <link id="hljs-light" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L" crossorigin="anonymous">
+ <link id="hljs-dark" rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css" integrity="sha384-oaMLBGEzBOJx3UHwac0cVndtX5fxGQIfnAeFZ35RTgqPcYlbprH9o9PUV/F8Le07" crossorigin="anonymous" disabled>
+
+ <!-- KaTeX CSS & JS for Math Rendering -->
+ <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" integrity="sha384-n8MVd4RsNIU0tAv4ct0nTaAbDJwPJzDEaqSD1odI+WdtXRGWt2kTvGFasHpSy3SV" crossorigin="anonymous">
+ <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" integrity="sha384-XjKyOOlGwcjNTAIQHIpgOno0Hl1YQqzUOEleOLALmuqehneUG+vnGctmUb0ZY0l8" crossorigin="anonymous"></script>
+ <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js" integrity="sha384-+VBxd3r6XgURycqtZ117nYw44OOcIax56Z4dCRWbxyPt0Koah1uHoK0o4+/RRE05" crossorigin="anonymous"></script>
+
+<style>
+ :root {
+ --bg-body: #ffffff;
+ --bg-content: #f9f9f9;
+ --text-main: #333333;
+ --link-color: #0066cc;
+ --btn-bg: #eee;
+ --toc-border: #ddd;
+ --base-font-size: 100%;
+ }
+
+ body.dark-mode {
+ --bg-body: #121212;
+ --bg-content: #1e1e1e;
+ --text-main: #e0e0e0;
+ --link-color: #8ab4f8;
+ --btn-bg: #333;
+ --toc-border: #444;
+ }
+
+ html {
+ font-size: var(--base-font-size);
+ }
+
+ body { 
+ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
+ margin: 0; 
+ padding: 1rem;
+ background-color: var(--bg-body);
+ color: var(--text-main);
+ font-size: 1rem;
+ line-height: 1.6;
+ transition: background-color 0.3s, color 0.3s;
+ display: flex; 
+ justify-content: center;
+ text-size-adjust: 100%;
+ -webkit-text-size-adjust: 100%;
+ }
+
+ .wrapper { 
+ width: 100%; 
+ max-width: 1100px; 
+ display: flex; 
+ gap: 2rem; 
+ position: relative; 
+ }
+ 
+ main { 
+ flex: 1; 
+ max-width: 800px; 
+ min-width: 0; 
+ }
+
+ #content { 
+ background: var(--bg-content); 
+ padding: 1.5rem; 
+ border-radius: 8px; 
+ margin-top: 0.5rem; 
+ box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+ max-width: 100%; 
+ box-sizing: border-box;
+ overflow-wrap: break-word;
+ word-break: break-word;
+ }
+
+ #toc {
+ width: 220px;
+ position: sticky; 
+ top: 2.5rem;
+ height: fit-content;
+ max-height: 85vh;
+ overflow-y: auto;
+ font-size: 0.875rem;
+ padding-left: 1rem;
+ border-left: 2px solid var(--toc-border);
+ }
+ #toc ul { list-style: none; padding: 0; margin: 0; }
+ #toc li { margin-bottom: 0.5rem; }
+ #toc a { text-decoration: none; color: var(--link-color); opacity: 0.8; }
+ #toc a:hover { opacity: 1; text-decoration: underline; }
+ #toc .toc-h1 { font-weight: bold; margin-top: 0.75rem; }
+ #toc .toc-h2 { padding-left: 0.75rem; }
+ #toc .toc-h3 { padding-left: 1.25rem; font-size: 0.85em; }
+
+ #content > *:first-child { margin-top: 0 !important; }
+ 
+ pre { 
+ position: relative; 
+ max-width: 100%; 
+ overflow-x: auto;
+ border-radius: 6px;
+ }
+ 
+ pre code { 
+ padding: 1rem; 
+ display: block; 
+ font-size: 0.875rem;
+ line-height: 1.45;
+ white-space: pre-wrap;
+ word-break: break-all;
+ }
+ 
+ img {
+ max-width: 100%;
+ height: auto;
+ display: block;
+ }
+
+ .copy-btn {
+ position: absolute; 
+ top: 0.5rem; 
+ right: 0.5rem;
+ padding: 0.25rem 0.5rem; 
+ font-size: 0.75rem; 
+ cursor: pointer;
+ background: rgba(128, 128, 128, 0.2); 
+ color: var(--text-main);
+ border: 1px solid rgba(128, 128, 128, 0.3); 
+ border-radius: 4px;
+ opacity: 0.8; 
+ transition: opacity 0.2s;
+ }
+ 
+ pre:hover .copy-btn { opacity: 1; }
+
+ #controls {
+ position: fixed; 
+ top: 1rem; 
+ right: 1rem;
+ display: flex;
+ gap: 0.5rem;
+ z-index: 1000;
+ }
+
+ .control-btn {
+ padding: 0.5rem; 
+ cursor: pointer;
+ background: var(--btn-bg); 
+ border: 1px solid #ccc;
+ color: var(--text-main);
+ border-radius: 50%; 
+ width: 2.5rem; 
+ height: 2.5rem;
+ display: flex; 
+ align-items: center; 
+ justify-content: center;
+ font-weight: bold;
+ font-size: 1rem;
+ user-select: none;
+ touch-action: manipulation;
+ }
+
+ /* Ensure display math expressions roll gracefully on mobile */
+ .katex-display {
+ overflow-x: auto;
+ overflow-y: hidden;
+ padding: 0.5rem 0;
+ }
+
+ @media (max-width: 1000px) { 
+ #toc { display: none; } 
+ }
+
+ @media (max-width: 768px) {
+ body { padding: 0.5rem; }
+ #content { padding: 1rem; }
+ #controls { top: 0.5rem; right: 0.5rem; }
+ input[type="file"] { max-width: 100%; }
+ }
+
+ @media print {
+ #controls, #fileInput, .copy-btn, #toc { display: none !important; }
+ body { background: white !important; color: black !important; font-size: 12pt !important; }
+ .wrapper { display: block; }
+ #content { background: transparent !important; padding: 0; box-shadow: none; }
+ }
+ </style>
+</head>
+<body>
+
+ <div id="controls">
+ <button id="textDecrease" class="control-btn" title="Decrease Text Size">A-</button>
+ <button id="textIncrease" class="control-btn" title="Increase Text Size">A+</button>
+ <button id="themeToggle" class="control-btn" title="Toggle Dark Mode">🌙</button>
+ <button id="copyHtml" class="control-btn" title="Copy Rendered HTML">📋</button>
+ <button id="downloadHtml" class="control-btn" title="Download HTML File">💾</button>
+ </div>
+
+ <div class="wrapper">
+ <main>
+ <input type="file" id="fileInput" accept=".md, .txt" />
+ <div id="content">Select a file to begin...</div>
+ </main>
+ <nav id="toc">
+ <div style="font-weight: bold; margin-bottom: 0.5rem; text-transform: uppercase; font-size: 0.8rem; letter-spacing: 1px;">Table of Contents</div>
+ <ul id="toc-list"></ul>
+ </nav>
+ </div>
+
+ <script>
+ const btn = document.getElementById('themeToggle');
+ const hljsLight = document.getElementById('hljs-light');
+ const hljsDark = document.getElementById('hljs-dark');
+
+ // Enable exactly one highlight.js theme via `disabled`; both stylesheets keep their SRI hashes.
+ function applyHljsTheme(isDark) {
+ hljsLight.disabled = isDark;
+ hljsDark.disabled = !isDark;
+ }
+
+ // Always print with the light code theme (dark-on-light, readable ink), then restore the on-screen theme.
+ window.addEventListener('beforeprint', () => applyHljsTheme(false));
+ window.addEventListener('afterprint', () => applyHljsTheme(document.body.classList.contains('dark-mode')));
+ 
+ const textDecrease = document.getElementById('textDecrease');
+ const textIncrease = document.getElementById('textIncrease');
+ let currentFontSize = parseInt(localStorage.getItem('fontSizePercentage')) || 100;
+
+ function updateFontSize() {
+ document.documentElement.style.setProperty('--base-font-size', currentFontSize + '%');
+ localStorage.setItem('fontSizePercentage', currentFontSize);
+ }
+
+ updateFontSize();
+
+ textDecrease.addEventListener('click', () => {
+ if (currentFontSize > 75) {
+ currentFontSize -= 10;
+ updateFontSize();
+ }
+ });
+
+ textIncrease.addEventListener('click', () => {
+ if (currentFontSize < 200) {
+ currentFontSize += 10;
+ updateFontSize();
+ }
+ });
+
+ if (localStorage.getItem('theme') === 'dark') {
+ document.body.classList.add('dark-mode');
+ applyHljsTheme(true);
+ btn.textContent = '☀️';
+ }
+
+ btn.addEventListener('click', () => {
+ const isDark = document.body.classList.toggle('dark-mode');
+ applyHljsTheme(isDark);
+ btn.textContent = isDark ? '☀️' : '🌙';
+ localStorage.setItem('theme', isDark ? 'dark' : 'light');
+ });
+
+ document.getElementById('copyHtml').addEventListener('click', () => {
+ const renderedHtml = document.getElementById('content').innerHTML;
+ navigator.clipboard.writeText(renderedHtml).then(() => {
+ alert('Rendered HTML copied to clipboard!');
+ }).catch(err => {
+ console.error('Failed to copy text: ', err);
+ });
+ });
+
+ document.getElementById('downloadHtml').addEventListener('click', () => {
+ const content = document.getElementById('content').innerHTML;
+ const fullHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+ <meta charset="UTF-8">
+ <meta name="viewport" content="width=device-width, initial-scale=1.0">
+ <title>Exported Rendered Document</title>
+ <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+ <style>
+ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.6; padding: 1rem; max-width: 800px; margin: 0 auto; }
+ pre { background: #f4f4f4; padding: 1rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+ img { max-width: 100%; height: auto; }
+ .katex-display { overflow-x: auto; overflow-y: hidden; }
+ </style>
+</head>
+<body>
+${content}
+</body>
+</html>`;
+
+ const blob = new Blob([fullHtml], { type: 'text/html' });
+ const url = URL.createObjectURL(blob);
+ const a = document.createElement('a');
+ a.href = url;
+ a.download = 'rendered_content.html';
+ document.body.appendChild(a);
+ a.click();
+ document.body.removeChild(a);
+ URL.revokeObjectURL(url);
+ });
+
+ document.getElementById('fileInput').addEventListener('change', function(event) {
+ const file = event.target.files[0];
+ if (!file) return;
+
+ const reader = new FileReader();
+ reader.onload = function(e) {
+ const contentDiv = document.getElementById('content');
+ contentDiv.innerHTML = marked.parse(e.target.result);
+ 
+ // Render KaTeX math equations
+ renderMathInElement(contentDiv, {
+ delimiters: [
+ {left: '$$', right: '$$', display: true},
+ {left: '$', right: '$', display: false},
+ {left: '\\(', right: '\\)', display: false},
+ {left: '\\[', right: '\\]', display: true}
+ ],
+ throwOnError: false
+ });
+
+ const tocList = document.getElementById('toc-list');
+ tocList.innerHTML = '';
+ const headings = contentDiv.querySelectorAll('h1, h2, h3');
+ 
+ headings.forEach((h, index) => {
+ const id = `nav-${index}`;
+ h.id = id;
+ 
+ const li = document.createElement('li');
+ li.className = `toc-${h.tagName.toLowerCase()}`;
+ const a = document.createElement('a');
+ a.href = `#${id}`;
+ a.textContent = h.textContent;
+ li.appendChild(a);
+ tocList.appendChild(li);
+ });
+
+ document.querySelectorAll('pre').forEach(block => {
+ const button = document.createElement('button');
+ button.innerText = 'Copy';
+ button.className = 'copy-btn';
+ button.onclick = () => {
+ navigator.clipboard.writeText(block.querySelector('code').innerText);
+ button.innerText = 'Copied!';
+ setTimeout(() => button.innerText = 'Copy', 2000);
+ };
+ block.appendChild(button);
+ });
+
+ hljs.highlightAll();
+ };
+ reader.readAsText(file);
+ });
+ </script>
+</body>
+</html>

@@ -9,9 +9,10 @@
  * SPDX-License-Identifier: MIT
  */
 //
-//
-//
-// Note: For Microsoft, link with: Microsoft SDK\lib\DbgHelp.Lib
+// Microsoft: Compiler: /Oy-      -- Stack Frames (otherwise stack walk faults).
+//                      /Zi       -- Debug Info.
+//            Linker: /debug      -- Emit pdb file.
+//                    DbgHelp.Lib -- Stack Walk.
 //
 
 #ifndef __Snap_CallStack

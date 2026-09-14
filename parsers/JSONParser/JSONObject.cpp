@@ -666,6 +666,60 @@ bool JSON_Object::AddValue(const char *Key, JSON_Value **ValueToAdd)
         return true;
         }
 
+JSON_Member* JSON_Object::RemoveMember(JSON_Member *MemberToRemove)
+        {
+        static const char *ProcName = "JSON_Object::RemoveMember";
+        if (!MemberToRemove) return NULL;
+        if (!MemberToRemove->Value) return NULL;
+        unsigned Index = MemberToRemove->Value->IndexInParent;
+        if (Index >= nMembers || Members[Index] != MemberToRemove)
+                {
+                TERROR(("%s: JSON_Member not found in Object",ProcName));
+                return NULL;
+                }
+        // -------------------------------------------
+        // ---- Isolate the Value from the Object ----
+        // -------------------------------------------
+        MemberToRemove->Value->Parent = NULL;
+        MemberToRemove->Value->IndexInParent = 0;
+        // -------------------------------------------
+        // ---- Shift remaining members leftwards ----
+        // -------------------------------------------
+        nMembers--;
+        for (unsigned i=Index; i < nMembers; i++)
+                {
+                Members[i] = Members[i+1];
+                if (Members[i]->Value) Members[i]->Value->IndexInParent = i;
+                }
+        Members[nMembers] = NULL;
+        return MemberToRemove;
+        }
+
+JSON_Value* JSON_Object::RemoveValue(JSON_Value *ValueToRemove)
+        {
+        static const char *ProcName = "JSON_Object::RemoveValue";
+        if (!ValueToRemove) return NULL;
+        unsigned Index = ValueToRemove->IndexInParent;
+        if (Index >= nMembers)
+                {
+                TERROR(("%s: JSON_Value beyond Limit (%d >= %d)",
+                        ProcName,
+                        Index,
+                        nMembers));
+                return NULL;
+                }
+        if (Members[Index]->Value != ValueToRemove)
+                {
+                TERROR(("%s: JSON_Value not a member of Object",ProcName));
+                return NULL;
+                }
+        JSON_Member *Member = Members[Index];
+        if (!RemoveMember(Member)) return NULL;
+        Member->Value = NULL;           // Prevent ~JSON_Member from deleting it.
+        delete Member;                  // Frees Key and member shell.
+        return ValueToRemove;
+        }
+
 JSON_Member& JSON_Object::operator [] (unsigned i)
         {
         static const char *ProcName = "JSON_Object::operator[]";
@@ -1212,6 +1266,42 @@ bool JSON_Value_Array::AddValue(JSON_Value **ValueToAdd)
                 Values[Index]->IndexInParent = Index;
                 }
         return true;
+        }
+
+JSON_Value* JSON_Value_Array::RemoveValue(JSON_Value *ValueToRemove)
+        {
+        static const char *ProcName = "JSON_Value_Array::RemoveValue";
+        if (!ValueToRemove) return NULL;
+        unsigned IndexInParent = ValueToRemove->IndexInParent;
+        if (IndexInParent >= nValues)
+                {
+                TERROR(("%s: JSON_Value beyond Limit (%d >= %d)",
+                        ProcName,
+                        IndexInParent,
+                        nValues));
+                return NULL;
+                }
+        if (Values[IndexInParent] != ValueToRemove)
+                {
+                TERROR(("%s: JSON_Value not a member of Array",ProcName));
+                return NULL;
+                }
+        // ------------------------------------------
+        // ---- Isolate the Value from the Array ----
+        // ------------------------------------------
+        ValueToRemove->Parent = NULL;
+        ValueToRemove->IndexInParent = 0;
+        // -------------------------------
+        // Shift remaining items leftwards
+        // -------------------------------
+        nValues--;
+        for (unsigned i=IndexInParent; i < nValues; i++)
+                {
+                Values[i] = Values[i+1];
+                if (Values[i]) Values[i]->IndexInParent = i;
+                }
+        Values[nValues] = NULL;
+        return ValueToRemove;
         }
 
 JSON_Value* JSON_Value_Array::operator [] (unsigned i)

@@ -191,65 +191,60 @@ void DeinitializeSockets()
 // **************************
 
 static flag ResolveAddress(socketCBaddr *AddrDest, int AddressFamily,
-                                                   const char *Address, 
-                                                   const char *Service,
-                                                   const char *Protocol,
-                                                   int *LastError)
+                           const char *Address, 
+                           const char *Service,
+                           const char *Protocol,
+                           int *LastError)
         {
-        addrinfo HintsV4 = {0};
-        addrinfo HintsV6 = {0};
+        addrinfo Hints = {0};
         addrinfo *Results = NULL;
         if (!AddrDest) return false;
         memset(AddrDest,0,sizeof(socketCBaddr));
-        HintsV4.ai_family = AF_INET;
-        HintsV6.ai_family = AF_INET6;
+        Hints.ai_family = AddressFamily;
+
         if (Protocol && stricmp(Protocol,"udp") == 0) 
                 {
-                HintsV4.ai_socktype = HintsV6.ai_socktype = SOCK_DGRAM;
-                HintsV4.ai_protocol = HintsV6.ai_protocol = IPPROTO_UDP;
+                Hints.ai_socktype = SOCK_DGRAM;
+                Hints.ai_protocol = IPPROTO_UDP;
                 }
         else if (Protocol && stricmp(Protocol,"tcp") == 0)
                 {
-                HintsV4.ai_socktype = HintsV6.ai_socktype = SOCK_STREAM;
-                HintsV4.ai_protocol = HintsV6.ai_protocol = IPPROTO_TCP;
+                Hints.ai_socktype = SOCK_STREAM;
+                Hints.ai_protocol = IPPROTO_TCP;
                 }
         else if (Protocol && stricmp(Protocol,"icmp") == 0)
                 {
-                HintsV4.ai_socktype = HintsV6.ai_socktype = SOCK_RAW;
-                HintsV4.ai_protocol = HintsV6.ai_protocol = IPPROTO_ICMP;
+                Hints.ai_socktype = SOCK_RAW;
+                Hints.ai_protocol = IPPROTO_ICMP;
                 }
         else if (Protocol && stricmp(Protocol,"esp") == 0)
                 {
-                HintsV4.ai_socktype = HintsV6.ai_socktype = SOCK_RAW;
-                HintsV4.ai_protocol = HintsV6.ai_protocol = IPPROTO_ESP;
+                Hints.ai_socktype = SOCK_RAW;
+                Hints.ai_protocol = IPPROTO_ESP;
                 }
-        int rc = getaddrinfo(Address,           // Try requested family first.
+
+        int rc = getaddrinfo(Address,           // Let the OS handle dual-stack prioritization
                              Service,
-                             AddressFamily == AF_INET ? &HintsV4 : &HintsV6,
+                             &Hints,
                              &Results);
         if (rc == 0)
                 {
-  AddrInfoOK:   size_t MinLength = sizeof_sockaddr(*Results->ai_addr);
+                size_t MinLength = sizeof_sockaddr(*Results->ai_addr);
                 size_t MaxLength = sizeof(*AddrDest);
                 if (MinLength > MaxLength) MinLength = MaxLength;
                 memcpy(AddrDest,Results->ai_addr,MinLength);
                 freeaddrinfo(Results);
                 }
         else    {
-                rc = getaddrinfo(Address,       // Try alternate family.
-                                 Service,
-                                 AddressFamily == AF_INET ? &HintsV6 : &HintsV4,
-                                 &Results);
-                if (rc == 0) goto AddrInfoOK;
+                if (LastError) *LastError = WSAGetLastError();
                 }
-        if (rc && LastError) *LastError = WSAGetLastError();
         return rc == 0;
         }
 
 static flag ResolveAddress(socketCBaddr *AddrDest, int AddressFamily,
-                                                   const char *Address, 
-                                                   int Port, 
-                                                   int *LastError)
+                           const char *Address, 
+                           int Port, 
+                           int *LastError)
         {
         flag Status;
         if (!AddrDest) return false;
@@ -316,10 +311,10 @@ static flag ResolveHost(in_addr *AddrDest, const char *HostSrc, int *LastErr)
         }
 
 static flag ResolveAddress(socketCBaddr *AddrDest, int AddressFamily,
-                                                   const char *Address, 
-                                                   const char *Service,
-                                                   const char *Protocol,
-                                                   int *LastError)
+                           const char *Address, 
+                           const char *Service,
+                           const char *Protocol,
+                           int *LastError)
         {
         flag Status;
         if (!AddrDest) return false;
@@ -345,9 +340,9 @@ static flag ResolveAddress(socketCBaddr *AddrDest, int AddressFamily,
         }
 
 static flag ResolveAddress(socketCBaddr *AddrDest, int AddressFamily,
-                                                   const char *Address, 
-                                                   int Port, 
-                                                   int *LastError)
+                           const char *Address, 
+                           int Port, 
+                           int *LastError)
         {
         flag Status;
         if (!AddrDest) return false;
@@ -375,13 +370,7 @@ flag ResolveAddress(socketCBaddr *AddrDest, const char *Host,
         int LastError;
   #ifdef SOCKETCB_IPV6
         flag rc = ResolveAddress(AddrDest,
-                                 !Host || !*Host        /* Hint */
-                                  ? AF_INET6
-                                  : inet_addr((char *)Host) != INADDR_NONE
-                                    ? AF_INET
-                                    : stricmp(Host,"localhost") == 0
-                                      ? AF_INET         /* Try IPv4 first */
-                                      : AF_INET6,
+                                 !Host || !*Host ? AF_INET6 : AF_UNSPEC,
                                  Host,
                                  Service,
                                  Protocol,
@@ -401,13 +390,7 @@ flag ResolveAddress(socketCBaddr *AddrDest, const char *Host, int Port)
         int LastError;
   #ifdef SOCKETCB_IPV6
         flag rc = ResolveAddress(AddrDest,
-                                 !Host || !*Host        /* Hint */
-                                  ? AF_INET6
-                                  : inet_addr((char *)Host) != INADDR_NONE
-                                    ? AF_INET
-                                    : stricmp(Host,"localhost") == 0
-                                      ? AF_INET         /* Try IPv4 first */
-                                      : AF_INET6,
+                                 !Host || !*Host ? AF_INET6 : AF_UNSPEC,
                                  Host,
                                  Port,
                                  &LastError);

@@ -1,0 +1,105 @@
+# ============================================================================
+# cURLExample Makefile (NMAKE - Visual Studio 2022)
+#
+# TSAR (Tools Slightly Above the Runtime)
+# Copyright (c) 2026 International Business Machines Corporation
+# Copyright (c) 2026 Eric Kass
+# SPDX-License-Identifier: MIT
+# ============================================================================
+
+!IF "$(CFG)" == ""
+CFG=Release
+!ENDIF
+
+!IF "$(CFG)" != "Release" && "$(CFG)" != "Debug"
+!ERROR CFG must be Release or Debug
+!ENDIF
+
+COMMONC_DIR = ..\..\base\CommonC
+JSONPARSER_DIR = ..\..\parsers\JSONParser
+PARSER_DIR     = ..\..\base\Parser
+AICURL_DIR     = ..\..\base\AIcURL
+OUTDIR = build\$(CFG)
+O      = $(OUTDIR)\obj
+
+CC   = cl.exe
+LINK = link.exe
+
+CFLAGS_BASE = /nologo /W3 /EHa /Oy- /D "WIN32" /D "_CONSOLE" /D "_MBCS" /D "_USE_EXPRESSION_S" /Fd"$(O)\\" /c
+
+!IF "$(CFG)" == "Release"
+CFLAGS_CFG = /MT /O2 /Zi /D "NDEBUG"
+!ELSE
+CFLAGS_CFG = /MTd /Zi /Od /D "_DEBUG" /RTC1
+!ENDIF
+
+INC_CORE = /I "$(COMMONC_DIR)" /I "$(JSONPARSER_DIR)" /I "$(PARSER_DIR)" /I "$(AICURL_DIR)"
+CFLAGS = $(CFLAGS_BASE) $(CFLAGS_CFG) $(INC_CORE)
+
+LIBS = kernel32.lib user32.lib advapi32.lib shell32.lib DbgHelp.lib ws2_32.lib
+
+!IF "$(CFG)" == "Release"
+LDFLAGS = /nologo /subsystem:console /debug
+!ELSE
+LDFLAGS = /nologo /subsystem:console /incremental:no /map /debug
+!ENDIF
+
+COMMONC_OBJS = \
+    $(O)\ASThread.obj \
+    $(O)\AutoString.obj \
+    $(O)\cURLRunner.obj \
+    $(O)\ebcdic.obj \
+    $(O)\LevelTrace.obj \
+    $(O)\LinkList.obj \
+    $(O)\MEMprintf.obj \
+    $(O)\popenNT.obj \
+    $(O)\SnapStack.obj
+
+JSONPARSER_OBJS = \
+    $(O)\_JSONParser.obj \
+    $(O)\JSONObject.obj \
+    $(O)\JSONParser.obj \
+    $(O)\JSONParserDetect.obj \
+    $(O)\JSONParserExp.obj \
+    $(O)\JSONParserLex.obj
+
+PARSER_OBJS = \
+    $(O)\Expression.obj \
+    $(O)\ExpressionSN.obj \
+    $(O)\FindNode.obj \
+    $(O)\LexicalParser.obj \
+    $(O)\PrintExpression.obj
+
+AICURL_OBJS = \
+    $(O)\AIcURLJSON.obj
+
+OBJS = $(COMMONC_OBJS) $(JSONPARSER_OBJS) $(PARSER_OBJS) $(AICURL_OBJS) $(O)\cURLExample.obj
+
+all: _makedirs $(OUTDIR)\cURLExample.exe
+
+_makedirs:
+	@if not exist "$(O)" mkdir "$(O)"
+
+clean:
+	@if exist "$(OUTDIR)" rmdir /s /q "$(OUTDIR)"
+
+cleanall:
+	@if exist build rmdir /s /q build
+
+$(OUTDIR)\cURLExample.exe: $(OBJS)
+	$(LINK) $(LDFLAGS) /OUT:$@ $** $(LIBS)
+
+{$(COMMONC_DIR)\}.cpp{$(O)\}.obj:
+	$(CC) $(CFLAGS) /Fo$@ $<
+
+{$(JSONPARSER_DIR)\}.cpp{$(O)\}.obj:
+	$(CC) $(CFLAGS) /Fo$@ $<
+
+{$(PARSER_DIR)\}.cpp{$(O)\}.obj:
+	$(CC) $(CFLAGS) /Fo$@ $<
+
+{$(AICURL_DIR)\}.cpp{$(O)\}.obj:
+	$(CC) $(CFLAGS) /Fo$@ $<
+
+.cpp{$(O)\}.obj:
+	$(CC) $(CFLAGS) /Fo$@ $<

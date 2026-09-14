@@ -15,6 +15,7 @@ These tags trace the evolution of the TSAR-MCP framework from a raw sequential b
 | **`mcp/async/v2.0.0`** | **The Modern Runtime:** Introduces advanced threading and asynchronous client communication for high-performance edge execution. |
 | **`mcp/enterprise_io/v2.1.0`** | **Isolated I/O stream and JSON protocol safety:** Isolates the MCPServer/MCPClient JSON stream aspects and libraries. Unlimited or bounded JSON nesting levels. |
 | **`mcp/agentic_prompts/v2.2.0`** | **Prompts as agentic services via `listPrompts` and `getPrompt` tools:** This implementation allows LLM clients to access the full prompt suite even when native `prompts/list` or `prompts/get` support is missing or limited. |
+| **`mcp/stateless_rc/v2.3.0`** | **Stateless Protocol RC & Utilities:** Introduces the 2026-07-28 stateless protocol RC. Expands the CommonC foundation with cancelable cross-platform process control (`popenNT`) and a generic REST transport (`cURLRunner`) that integrates natively with the JSONParser (demonstrated via `cURLExample`), enabling external API communication independent of the main MCP protocol loop. Adds custom lifecycle hooks (`NO_MAIN_MCP`) for explicit process startup control. |
 
 ### How to Clone an MCP Milestone
 To keep your workspace clean and avoid downloading the entire repository history, use a "shallow clone" to pull down only the exact files for the milestone you want to study:

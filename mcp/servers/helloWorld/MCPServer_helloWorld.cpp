@@ -22,7 +22,7 @@
 #include <MCPServerCore.h>
 
 const char *MCPServer_Name = "MCPServer_helloWorld";
-const char *MCPServer_Version = "0.1.2";
+const char *MCPServer_Version = "0.1.3";
 const char *MCPServer_Capabilities = "\"tools\":{}";
 bool MCPServer_Asynchronous = false;
 
@@ -50,6 +50,13 @@ const char* MCPInputTestRequests[] =
 // ***************************************************************************
 // **** Init / Shutdown ******************************************************
 // ***************************************************************************
+
+bool MCPServer_OnStartup()
+        {
+        static const char *ProcName = "MCPServer_OnStartup";
+        TINFO(("%s: %s Startup",ProcName,MCPServer_Name));
+        return true;
+        }
 
 bool MCPServer_OnInitialize(MCPInputRequest &MCPRequest)
         {
@@ -203,6 +210,15 @@ void Handle_notification(MCPInputRequest &MCPRequest)
 // ****************************************************************************
 
 char* Handle_sampling_response(MCPInputRequest &MCPRequest)
+        {
+        return NULL;
+        }
+
+// ****************************************************************************
+// **** Handle_tools_call_resume (Dormant) ************************************
+// ****************************************************************************
+
+char* Handle_tools_call_resume(MCPInputRequest &MCPRequest)
         {
         return NULL;
         }

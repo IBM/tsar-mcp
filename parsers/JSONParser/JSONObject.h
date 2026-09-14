@@ -47,7 +47,7 @@ struct JSON_Value
         public:
                 JSON_Value() {Parent = NULL; IndexInParent = 0;}
                 JSON_Value(const JSON_Value&) {Parent = NULL; IndexInParent = 0;}
-                JSON_Value& operator=(const JSON_Value&) {return *this;}
+                JSON_Value& operator =(const JSON_Value&) {return *this;}
                 virtual ~JSON_Value() {Clear();}
                 void Clear();
                 unsigned GetIndexInParent() {return IndexInParent;}
@@ -88,6 +88,8 @@ struct JSON_Object : public JSON_Value
         bool AddMember(JSON_Member **MemberToAdd);
         bool AddValue(const char *Key, JSON_Value **ValueToAdd);
         virtual bool isObject() {return true;}
+        JSON_Member* RemoveMember(JSON_Member *MemberToRemove);
+        JSON_Value* RemoveValue(JSON_Value *ValueToRemove);
         JSON_Member& operator [] (unsigned i);
         JSON_Object& operator =(JSON_Object &Source);
         // ----------=====--------------
@@ -130,6 +132,7 @@ struct JSON_Value_Array : public JSON_Value
         ~JSON_Value_Array();
         bool AddValue(JSON_Value **ValueToAdd);
         virtual bool isArray() {return true;}
+        JSON_Value* RemoveValue(JSON_Value *ValueToRemove);
         JSON_Value* operator [] (unsigned i);
         JSON_Value_Array& operator =(JSON_Value_Array &Source);
         // ---------------------------

@@ -54,7 +54,7 @@ To learn how to quickly scaffold, build, and test your own custom tools by hand,
 
 Navigate to the `mcp/` directory. The SDK uses an out-of-source build system, placing compiled binaries into the `build/Release` or `build/Debug` directories.
 
-**Linux / macOS (GNU Make):**
+**Linux (GNU Make):**
 ```bash
 cd mcp
 make                 # Builds all aspects (Release mode)
@@ -78,6 +78,7 @@ nmake -f Makefile.nmake cleanall        # Removes the entire build directory
 TSAR-MCP is built around a simple native execution path: an MCP client sends JSON-RPC over `stdio`, the framework parses and validates it natively, dispatches the request into your aspect, and returns a well-formed response back to the client. There is no Python interpreter, no Node.js runtime, and no external protocol layer sitting between your tool logic and the operating system.
 
 * **Isolated JSON Transport:** The MCP protocol stream is kept separate from ordinary program output, so aspects can safely link in noisy third-party libraries without corrupting client/server communication.
+* **Protocol Compatibility:** Dual-lane transport supports both stateful and stateless MCP. The default is clamped to the stateful `2025-11-25` specification while `2026-07-28` support is offered as a Release Candidate. Releasing the clamp via compilation flags activates the new protocol while automatic negotiation preserves full backward compatibility with older clients.
 * **Native BNF Parsing Framework:** The `JSONParser` engine validates incoming JSON-RPC messages and tool payloads structurally before your aspect logic runs.
 * **Single-File Aspect Model:** New capabilities are typically added by implementing a small set of C or C++ hooks in one `.cpp` file, while the framework handles handshake, dispatch, and response shaping.
 * **Prompt polyfill:** Natively offers prompts as tools for agentic and LLM invocation (initiate `listPrompts` to wake LLM session awareness).
@@ -85,9 +86,13 @@ TSAR-MCP is built around a simple native execution path: an MCP client sends JSO
 
 ## Included Examples & Roadmap
 
-This repository includes the core SDK framework alongside target-specific MCP server implementations to demonstrate the extensibility of the architecture:
+This repository includes the core SDK framework alongside target-specific MCP server implementations and standalone utilities to demonstrate the extensibility of the architecture:
 
-* **WordArt Generator ([`wordArt`](./mcp/servers/wordArt/MCPServer_wordArt.cpp)):** Demonstrates **bi-directional LLM-code integration** (MCP Sampling). Rather than relying on native C string manipulation, this aspect dynamically prompts the client's LLM (`sampling/createMessage`) to generate styled ASCII art—showcasing the simplicity by which TSAR-MCP bridges the absolute deterministic safety of a native C runtime with the dynamic cognitive reasoning of modern AI.
+* **WordArt Generator ([`wordArt`](./mcp/servers/wordArt/MCPServer_wordArt.cpp)):** Demonstrates **bi-directional LLM-code integration** (MCP Sampling / MCP Multi-Round-Trip-Request). Rather than relying on native C string manipulation, this aspect dynamically prompts the client's LLM (`sampling/createMessage`) to generate styled ASCII art—showcasing the simplicity by which TSAR-MCP bridges the absolute deterministic safety of a native C runtime with the dynamic cognitive reasoning of modern AI.
+
+* **TSAR-MCP Markdown Viewer ([`MarkdownViewer.html`](./tools/MarkdownViewer/MarkdownViewer.html)):** A self-contained, single-file HTML Markdown viewer. Running entirely in the browser to keep your documents private, it provides syntax highlighting, mathematical KaTeX rendering, a floating Table of Contents, and "save to HTML" and printing functionality. It is perfect for reading the architectural documents in this repository. **[▶ Open the live viewer](https://ibm.github.io/tsar-mcp/tools/MarkdownViewer/MarkdownViewer.html)**
+
+* **REST API Execution ([`cURLExample`](./examples/cURLExample/cURLExample.cpp)):** A standalone utility demonstrating `cURLRunner`, a generic, cancelable REST transport built directly into the `CommonC` foundation. It parses the resulting payload using the native `JSONParser` to facilitate high-performance external API communication without tying into the MCP protocol loop.
 
 * **Hello World & Port Scan ([`helloWorld`](./mcp/servers/helloWorld/MCPServer_helloWorld.cpp), [`portScan`](./mcp/servers/portScan/MCPServer_portScan.cpp)):** Basic implementations that demonstrate how to bind standard I/O to the native JSON-RPC parsing framework, and how to interact sequentially with local network sockets.
 
@@ -104,6 +109,7 @@ This repository is structured as a chronological masterclass in building zero-de
 3. **Tag:** `mcp/async/v2.0.0` - The advanced threaded and asynchronous runtime framework.
 4. **Tag:** `mcp/enterprise_io/v2.1.0` - Isolated I/O stream and JSON protocol safety.
 5. **Tag:** `mcp/agentic_prompts/v2.2.0` - Prompts as agentic services via `listPrompts` and `getPrompt` tools.
+6. **Tag:** `mcp/stateless_rc/v2.3.0` - Introduces 2026-07-28 stateless protocol RC alongside process control (`popenNT`), generic REST utilities (`cURLRunner`), and custom lifecycle hooks (`NO_MAIN_MCP`).
 
 Please see **[ARCHITECTURE_MILESTONES.md](./ARCHITECTURE_MILESTONES.md)** for detailed instructions on how to check out these historical baselines.
 

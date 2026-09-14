@@ -42,7 +42,6 @@
 #endif
 
 #include <MCPServerCore.h>
-#include <MCPServerJSON.h>
 
 #define MCPServerLOG "MCPServerLog_%u.txt"              // LevelTrace Logfile.
 #ifdef _WIN32
@@ -420,6 +419,42 @@ char* ReadSTDIN_MCPMessage(FILE *in)    // "getline()" - reads until EOL.
         }      
 
 // ***************************************************************************
+// **** MCP Extensions *******************************************************
+// ***************************************************************************
+
+// -----------------------------------------------
+// ---- MCP Async Extension (Internal Hooks) ----
+// -----------------------------------------------
+
+void (*InitMCPAsyncHook)() = NULL;
+void (*DeinitMCPAsyncHook)() = NULL;
+char* (*Handle_async_object)(void *UserPtr) = NULL;
+void (*Discard_async_object)(void *UserPtr) = NULL;
+bool (*Cancel_async_object)(MCPInputRequest &MCPRequest) = NULL;
+
+// -----------------------------------------------
+// ---- MCP Sample Extension (Internal Hooks) ----
+// -----------------------------------------------
+
+void (*OnInitMCPSampleHook)(MCPInputRequest &MCPRequest) = NULL;
+char* (*Handle_sampling_hook)(MCPInputRequest &MCPRequest) = NULL;
+void (*DeinitMCPSampleHook)() = NULL;
+
+// -----------------------------------------------
+// ---- MCP Sample Extension (Internal Hooks) ----
+// -----------------------------------------------
+
+void (*OnStartupMCPSampleExHook)() = NULL;
+
+// -----------------------------------------------
+// ---- MCP MRTR Extension (Internal Hooks) ----
+// -----------------------------------------------
+
+char* (*Handle_MRTR_hook)(MCPInputRequest &MCPRequest) = NULL;
+void (*Handle_MRTR_reapttl)() = NULL;
+void (*OnShutdownMRTRHook)() = NULL;
+
+// ***************************************************************************
 // **** JSON Output Responses ************************************************
 // ***************************************************************************
 
@@ -610,6 +645,33 @@ char* Return_MCPOutput_Pending()
         }
 
 // ***************************************************************************
+// **** MCP Protocol Version Policy ******************************************
+// **********************************
+//
+//      MCPServerJSON reports the raw per-request version; the ceiling
+//      clamp and the initialize-negotiated fallback live here. Touched
+//      only on the main message-loop thread.
+//
+// ***************************************************************************
+
+static int NegotiatedVersion = MCPProtocolVersion_ServerMax;
+
+static void MCPSetNegotiatedVersion(int Version)
+        {
+        NegotiatedVersion = Version;
+        return;
+        }
+
+int MCPProtocolVersion(MCPInputRequest &MCPRequest)
+        {
+        int Client = MCPRequest.Version();
+        int Effective = Client > NegotiatedVersion 
+                        ? NegotiatedVersion
+                        : Client;
+        return Effective;
+        }
+
+// ***************************************************************************
 // **** Handle Initialize ****************************************************
 // ***************************************************************************
 
@@ -640,7 +702,15 @@ static char* FormMCPResponse_initialize(JSON_Value *idRequest,
         // ---- result ----
         // ----------------
         Canvas.printf("\"result\":{");
-        Canvas.printf("\"protocolVersion\":\"2024-11-05\",");
+        int ClientVersion = MCPProtocolVersionInt(protocolVersion);
+        int EffectiveVersion = ClientVersion > MCPProtocolVersion_ServerMax
+                              ? MCPProtocolVersion_ServerMax
+                              : ClientVersion;
+        MCPSetNegotiatedVersion(EffectiveVersion);
+        Canvas.printf("\"protocolVersion\":\"%d-%.2d-%.2d\",",
+                      EffectiveVersion / 10000,
+                      EffectiveVersion / 100 % 100,
+                      EffectiveVersion % 100);
         Canvas.printf("\"capabilities\":{%s},",MCPServer_Capabilities);
         Canvas.printf("\"serverInfo\":{"
                                        "\"name\":\"%s\","
@@ -686,6 +756,19 @@ static char* Handle_initialize(MCPInputRequest &MCPRequest)
                                                          ? client_version
                                                          : "<none>"));
                 }
+        TINFO(("%s: Client offered protocolVersion=%s",ProcName,
+                                                       protocolVersion
+                                                       ? protocolVersion
+                                                       : "<none>"));
+        if (MCPProtocolVersionInt(protocolVersion) == MCPProtocolVersion_Invalid)
+                {
+                TERROR(("%s: Missing/malformed protocolVersion",ProcName));
+                return FormMCPResponse_ERROR(idRequest,
+                                             MCPErrorCode_InvalidParms,
+                                             "Invalid Params",
+                                             "Missing or malformed required "
+                                             "parameter: protocolVersion");
+                }
         char *MCPOutput = FormMCPResponse_initialize(idRequest,
                                                      protocolVersion,
                                                      capabilities,
@@ -711,6 +794,68 @@ static void Handle_initialized(MCPInputRequest &MCPRequest)
         }
 
 // ***************************************************************************
+// **** Handle server/discover ***********************************************
+// ***************************************************************************
+//
+//      Stateless discovery (MCP 2026-07-28). Reports supported protocol
+//      versions, capabilities, and serverInfo in one request -- no state,
+//      no OnInitialize. Modern clients MAY probe this before any other RPC.
+//
+// ***************************************************************************
+
+static char* Handle_server_discover(JSON_Value *idRequest)
+        {
+        const char *ProcName = "Handle_server_discover";
+        /* ----- OUTPUT ----------------------------------------------
+        {
+          "jsonrpc": "2.0",
+          "id": "discover-1",
+          "result": {
+            "resultType": "complete",
+            "supportedVersions": ["2026-07-28", "2025-11-25", "2024-11-05"],
+            "capabilities": { "tools": {} },
+            "_meta": {
+              "io.modelcontextprotocol/serverInfo":
+                            { "name": "MCPServer", "version": "0.1.0" }
+            }
+          }
+        }
+        ----------------------------------------------------------- */
+        MemoryPrintf Canvas;
+        Canvas.printf("{");
+        Canvas.printf("\"jsonrpc\":\"2.0\",");
+        Canvas.printf("\"id\":%s,",id2string(idRequest));
+        // ----------------
+        // ---- result ----
+        // ----------------
+        Canvas.printf("\"result\":{");
+        Canvas.printf("\"resultType\":\"complete\",");
+        Canvas.printf("\"supportedVersions\":["
+                      "\"%d-%.2d-%.2d\",\"%d-%.2d-%.2d\",\"%d-%.2d-%.2d\"],",
+                      MCPProtocolVersion_20260728 / 10000,
+                      MCPProtocolVersion_20260728 / 100 % 100,
+                      MCPProtocolVersion_20260728 % 100,
+                      MCPProtocolVersion_20251125 / 10000,
+                      MCPProtocolVersion_20251125 / 100 % 100,
+                      MCPProtocolVersion_20251125 % 100,
+                      MCPProtocolVersion_20241105 / 10000,
+                      MCPProtocolVersion_20241105 / 100 % 100,
+                      MCPProtocolVersion_20241105 % 100);
+        Canvas.printf("\"capabilities\":{%s},",MCPServer_Capabilities);
+        Canvas.printf("\"_meta\":{");
+        Canvas.printf("\"io.modelcontextprotocol/serverInfo\":{");
+        Canvas.printf("\"name\":\"%s\",",MCPServer_Name);
+        Canvas.printf("\"version\":\"%s\"",MCPServer_Version);
+        Canvas.printf("}"); /* serverInfo */
+        Canvas.printf("}"); /* _meta */
+        Canvas.printf("}"); /* result */
+        // ----------------
+        // ----------------
+        Canvas.printf("}");
+        return Canvas.AquireBuffer();
+        }
+
+// ***************************************************************************
 // **** MCP Tool Handlers ****************************************************
 // ***************************************************************************
 
@@ -720,6 +865,13 @@ static void Handle_initialized(MCPInputRequest &MCPRequest)
 
 extern const unsigned MCPInternToolInfoCount;
 extern MCPToolInfo_t MCPInternToolInfo[];
+
+// =========================================
+// ==== Extern Tools (Aspect-Populated) ====
+// =========================================
+
+unsigned MCPExternToolInfoCount = 0;
+MCPToolInfo_t* MCPExternToolInfo = NULL;
 
 // --------------------
 // ---- Trace Tool ----
@@ -733,6 +885,12 @@ static char* MCPtool_readTrace(JSON_Value&, JSON_Object&);
 
 static char* MCPtool_listPrompts(JSON_Value&, JSON_Object&);
 static char* MCPtool_getPrompt(JSON_Value&, JSON_Object&);
+
+// --------------------
+// ---- About Tool ----
+// --------------------
+
+static char* MCPtool_about(MCPInputRequest&, JSON_Object&);
 
 // ---------------------------------------------------------------------------
 // ---- Handle_tools_list ----------------------------------------------------
@@ -814,9 +972,23 @@ static char* Handle_tools_list(JSON_Value *idRequest)
         // ----------------
         Canvas.printf("\"result\":{");
         Canvas.printf("\"tools\":[");
-        FormToolsList(Canvas,MCPInternToolInfoCount,MCPInternToolInfo);
-        if (MCPInternToolInfoCount && MCPToolInfoCount) Canvas.printf(",");
-        FormToolsList(Canvas,MCPToolInfoCount,MCPToolInfo);
+        bool NeedComma = false;
+        if (MCPInternToolInfoCount)
+                {
+                FormToolsList(Canvas,MCPInternToolInfoCount,MCPInternToolInfo);
+                NeedComma = true;
+                }
+        if (MCPToolInfoCount)
+                {
+                if (NeedComma) Canvas.printf(",");
+                FormToolsList(Canvas,MCPToolInfoCount,MCPToolInfo);
+                NeedComma = true;
+                }
+        if (MCPExternToolInfoCount)
+                {
+                if (NeedComma) Canvas.printf(",");
+                FormToolsList(Canvas,MCPExternToolInfoCount,MCPExternToolInfo);
+                }
         Canvas.printf("]"); /* tools */
         Canvas.printf("}"); /* result */
         // ----------------
@@ -825,6 +997,21 @@ static char* Handle_tools_list(JSON_Value *idRequest)
         return Canvas.AquireBuffer();
         }
 
+// ----------------------------------------------
+// ---- FormMCPNotification_ToolsListChanged ----
+// ----------------------------------------------
+
+char* FormMCPNotification_ToolsListChanged()
+        {
+        MemoryPrintf Canvas;
+        Canvas.printf("{");
+        Canvas.printf("\"jsonrpc\":\"2.0\",");
+        Canvas.printf("\"method\":\"notifications/tools/list_changed\"");
+        Canvas.printf("}");
+        return Canvas.AquireBuffer();
+        }
+
+// ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 // ---- Handle_tools_call_dispatch -------------------------------------------
 // ---------------------------------------------------------------------------
@@ -858,6 +1045,32 @@ static char* Handle_tools_call_dispatch(MCPInputRequest &MCPRequest)
         ----------------------------------------------------------- */
         char *MCPOutput = NULL;
         JSON_Value *idRequest = MCPRequest.Get_id();
+        // ----------------------------------------------------
+        // ---- MRTR: a resume retry carries requestState -----
+        // ----------------------------------------------------
+        if (MCPRequest.Get_param("requestState"))
+                {
+                if (Handle_MRTR_hook)
+                        {
+                        MCPOutput = Handle_MRTR_hook(MCPRequest);
+                        }
+                if (!MCPOutput)
+                        {
+                        MCPOutput = Handle_tools_call_resume(MCPRequest);
+                        }
+                if (!MCPOutput)
+                        {
+                        TERROR(("%s: No pending MRTR for id: %s",
+                                ProcName,
+                                id2string(idRequest)));
+                        MCPOutput = FormMCPResponse_ERROR(idRequest,
+                                                          MCPErrorCode_InvalidParms,
+                                                          "Invalid Request State",
+                                                          "No pending MRTR for id: %s",
+                                                          id2string(idRequest));
+                        }
+                return MCPOutput;
+                }
         const char *ToolName = MCPRequest.Get_param_string("name");
         JSON_Object *Arguments = MCPRequest.Get_param_object("arguments");
         // ---------------------------
@@ -885,6 +1098,10 @@ static char* Handle_tools_call_dispatch(MCPInputRequest &MCPRequest)
         // ----------------------------------
         // ---- Dispatch: Internal Tools ----
         // ----------------------------------
+        if (strcmp(ToolName,"about_tsar-mcp") == 0)
+                {
+                return MCPtool_about(MCPRequest,*Arguments);
+                }
         if (strcmp(ToolName,"readTrace") == 0)
                 {
                 return MCPtool_readTrace(*idRequest,*Arguments);
@@ -937,9 +1154,43 @@ static char* Handle_tools_call_dispatch(MCPInputRequest &MCPRequest)
 // **** MCP Prompt Handlers **************************************************
 // ***************************************************************************
 
+// ===========================================
+// ==== Extern Prompts (Aspect-Populated) ====
+// ===========================================
+
+unsigned MCPExternPromptInfoCount = 0;
+MCPPromptInfo_t* MCPExternPromptInfo = NULL;
+
 // ---------------------------------------------------------------------------
 // ---- Handle_prompts_list --------------------------------------------------
 // ---------------------------------------------------------------------------
+
+static void FormPromptsList(MemoryPrintf &Canvas,
+                            unsigned nPrompts,
+                            MCPPromptInfo_t PromptInfo[])
+        {
+        for (unsigned i = 0; i < nPrompts; i++)
+                {
+                TINFO(("%s: Exporting Prompt: %s",MCPServer_Name,
+                                                  PromptInfo[i].Name));
+                Canvas.printf("{");
+                Canvas.printf("\"name\":\"%s\",",PromptInfo[i].Name);
+                char *EscDesc = EscapeJSONString(PromptInfo[i].Description);
+                Canvas.printf("\"description\":\"%s\",",EscDesc ? EscDesc : "");
+                FreeEscapeJSONString(&EscDesc);
+                Canvas.printf("\"arguments\":[");
+                unsigned nArguments = PromptInfo[i].nArguments;
+                for (unsigned j = 0; j < nArguments; j++)
+                        {
+                        Canvas.printf(j + 1 == nArguments ? "%s" : "%s,",
+                                      PromptInfo[i].Arguments[j]);
+                        }
+                Canvas.printf("]"); /* arguments */
+                if (i + 1 == nPrompts) Canvas.printf("}");
+                else Canvas.printf("},");
+                }
+        return;
+        }
 
 static char* Handle_prompts_list(JSON_Value *idRequest)
         {
@@ -968,30 +1219,36 @@ static char* Handle_prompts_list(JSON_Value *idRequest)
         // ----------------
         Canvas.printf("\"result\":{");
         Canvas.printf("\"prompts\":[");
-        for (unsigned i = 0; i < MCPPromptInfoCount; i++)
+        bool NeedComma = false;
+        if (MCPPromptInfoCount)
                 {
-                TINFO(("%s: Exporting Prompt: %s",MCPServer_Name,
-                                                  MCPPromptInfo[i].Name));
-                Canvas.printf("{");
-                Canvas.printf("\"name\":\"%s\",",MCPPromptInfo[i].Name);
-                char *EscDesc = EscapeJSONString(MCPPromptInfo[i].Description);
-                Canvas.printf("\"description\":\"%s\",",EscDesc ? EscDesc : "");
-                FreeEscapeJSONString(&EscDesc);
-                Canvas.printf("\"arguments\":[");
-                unsigned nArguments = MCPPromptInfo[i].nArguments;
-                for (unsigned j = 0; j < nArguments; j++)
-                        {
-                        Canvas.printf(j + 1 == nArguments ? "%s" : "%s,",
-                                      MCPPromptInfo[i].Arguments[j]);
-                        }
-                Canvas.printf("]"); /* arguments */
-                if (i + 1 == MCPPromptInfoCount) Canvas.printf("}");
-                else Canvas.printf("},");
+                FormPromptsList(Canvas,MCPPromptInfoCount,MCPPromptInfo);
+                NeedComma = true;
+                }
+        if (MCPExternPromptInfoCount)
+                {
+                if (NeedComma) Canvas.printf(",");
+                FormPromptsList(Canvas,MCPExternPromptInfoCount,
+                                       MCPExternPromptInfo);
                 }
         Canvas.printf("]"); /* prompts */
         Canvas.printf("}"); /* result */
         // ----------------
         // ----------------
+        Canvas.printf("}");
+        return Canvas.AquireBuffer();
+        }
+
+// ------------------------------------------------
+// ---- FormMCPNotification_PromptsListChanged ----
+// ------------------------------------------------
+
+char* FormMCPNotification_PromptsListChanged()
+        {
+        MemoryPrintf Canvas;
+        Canvas.printf("{");
+        Canvas.printf("\"jsonrpc\":\"2.0\",");
+        Canvas.printf("\"method\":\"notifications/prompts/list_changed\"");
         Canvas.printf("}");
         return Canvas.AquireBuffer();
         }
@@ -1578,14 +1835,28 @@ bool PostResourceUpdated(const char *URI)
 // **** MCP Internal Tools  **************************************************
 // ***************************************************************************
 
-#if IncludePromptTools
-        const unsigned MCPInternToolInfoCount = 3;
-#else
-        const unsigned MCPInternToolInfoCount = 1;
-#endif
+const unsigned MCPInternToolInfoCount = 2 + (IncludePromptTools ? 2 : 0);
 
 MCPToolInfo_t MCPInternToolInfo[] =
         {
+                // ------------------------
+                // ---- about_tsar-mcp ----
+                // ------------------------
+                {
+                // Name
+                "about_tsar-mcp",
+                // Description
+                "Reports this TSAR-MCP server's identity, protocol support, "
+                "linked advanced modules, attribution, and tool inventory. "
+                "Call to learn what this server is and what it can do.",
+                0,
+                // InputSchema {Properties}
+                        {
+                        ""
+                        },
+                // [Required]
+                ""
+                },
                 // -------------------
                 // ---- readTrace ----
                 // -------------------
@@ -1800,18 +2071,37 @@ static char* MCPtool_readTrace(JSON_Value &idRequest, JSON_Object &Arguments)
 //
 // --------------------------------------------------------------
 
+static void EmitPromptEntry(MemoryPrintf &Canvas, MCPPromptInfo_t &Prompt)
+        {
+        Canvas.printf("{");
+        Canvas.printf("\"name\":\"%s\",", Prompt.Name);
+        char *EscDesc = EscapeJSONString(Prompt.Description);
+        Canvas.printf("\"description\":\"%s\",", EscDesc ? EscDesc : "");
+        FreeEscapeJSONString(&EscDesc);
+        Canvas.printf("\"arguments\":[");
+        unsigned nArgs = Prompt.nArguments;
+        for (unsigned j = 0; j < nArgs; j++)
+                {
+                Canvas.printf(j + 1 == nArgs ? "%s" : "%s,",
+                              Prompt.Arguments[j]);
+                }
+        Canvas.printf("]"); /* arguments */
+        Canvas.printf("}");
+        return;
+        }
+
 static char* MCPtool_listPrompts(JSON_Value &idRequest, JSON_Object &Arguments)
         {
         const char *ProcName = "MCPtool_listPrompts";
         const char *FilterName = Arguments.Find_member_string("promptName");
-        if (MCPPromptInfoCount == 0)
+        if (MCPPromptInfoCount == 0 && MCPExternPromptInfoCount == 0)
                 {
                 return FormMCPResponse_Text(&idRequest, "[]");
                 }
         MemoryPrintf Canvas;
         Canvas.printf("[");
-        unsigned nEmitted = 0;
-        for (unsigned i = 0; i < MCPPromptInfoCount; i++)
+        unsigned i, nEmitted = 0;
+        for (i = 0; i < MCPPromptInfoCount; i++)
                 {
                 if (FilterName && 
                     strcmp(FilterName,MCPPromptInfo[i].Name) != 0)
@@ -1819,20 +2109,18 @@ static char* MCPtool_listPrompts(JSON_Value &idRequest, JSON_Object &Arguments)
                         continue;       // Not what we're looking for.
                         }
                 if (nEmitted > 0) Canvas.printf(",");
-                Canvas.printf("{");
-                Canvas.printf("\"name\":\"%s\",", MCPPromptInfo[i].Name);
-                char *EscDesc = EscapeJSONString(MCPPromptInfo[i].Description);
-                Canvas.printf("\"description\":\"%s\",", EscDesc ? EscDesc : "");
-                FreeEscapeJSONString(&EscDesc);
-                Canvas.printf("\"arguments\":[");
-                unsigned nArgs = MCPPromptInfo[i].nArguments;
-                for (unsigned j = 0; j < nArgs; j++)
+                EmitPromptEntry(Canvas,MCPPromptInfo[i]);
+                nEmitted++;
+                }
+        for (i = 0; i < MCPExternPromptInfoCount; i++)
+                {
+                if (FilterName &&
+                    strcmp(FilterName,MCPExternPromptInfo[i].Name) != 0)
                         {
-                        Canvas.printf(j + 1 == nArgs ? "%s" : "%s,",
-                                      MCPPromptInfo[i].Arguments[j]);
+                        continue;       // Not what we're looking for.
                         }
-                Canvas.printf("]"); /* arguments */
-                Canvas.printf("}");
+                if (nEmitted > 0) Canvas.printf(",");
+                EmitPromptEntry(Canvas,MCPExternPromptInfo[i]);
                 nEmitted++;
                 }
         Canvas.printf("]");
@@ -1963,6 +2251,184 @@ static char* MCPtool_getPrompt(JSON_Value &idRequest, JSON_Object &Arguments)
         }
 
 // ***************************************************************************
+// **** about_tsar-mcp Tool **************************************************
+// **************************
+//
+//      Self-describing introspection tool.
+//
+// ***************************************************************************
+
+#ifndef About_ProjectName
+        #define About_ProjectName "TSAR-MCP (Tools Slightly Above the Runtime)"
+#endif
+#ifndef About_Credit
+        #define About_Credit "(c) 1997, 2026 Eric Kass / " \
+                             "International Business Machines Corporation " \
+                             "(SPDX: MIT)"
+#endif
+
+const char* MCPServer_AspectCredit = NULL;
+
+static char* MCPtool_about(MCPInputRequest &MCPRequest, JSON_Object &)
+        {
+        const char *ProcName = "MCPtool_about";
+        TINFO(("%s: Reporting server identity",ProcName));
+        JSON_Value *idRequest = MCPRequest.Get_id();
+        MemoryPrintf Canvas;
+        // ------------------
+        // ---- Identity ----
+        // ------------------
+        Canvas.printf("%s\n",About_ProjectName);
+        Canvas.printf("Server: %s v%s\n",MCPServer_Name,MCPServer_Version);
+        // ------------------------------------------------
+        // ---- Protocol (negotiated for this request) ----
+        // ------------------------------------------------
+        int ServerMax = MCPProtocolVersion_ServerMax;
+        int ClientVersion = MCPRequest.Version();          // What the client is.
+        int SpeakVersion = MCPProtocolVersion(MCPRequest); // Effective (clamped).
+        Canvas.printf("Protocol:\n");
+        Canvas.printf("| Client: %d-%.2d-%.2d\n",
+                      ClientVersion / 10000,
+                      ClientVersion / 100 % 100,
+                      ClientVersion % 100);
+        Canvas.printf("| Server: %d-%.2d-%.2d\n",
+                      ServerMax / 10000,
+                      ServerMax / 100 % 100,
+                      ServerMax % 100);
+        Canvas.printf("| Speak:  %d-%.2d-%.2d\n",
+                      SpeakVersion / 10000,
+                      SpeakVersion / 100 % 100,
+                      SpeakVersion % 100);
+        // -------------------------------------------------
+        // ---- Async event loop (this binary) -------------
+        // -------------------------------------------------
+        Canvas.printf("Async: %s\n",MCPServer_Asynchronous ? "on" : "off");
+        // -------------------------------------------------
+        // ---- Linked modules (probe registered hooks) ----
+        // -------------------------------------------------
+        bool AnyModule = false;
+        Canvas.printf("Modules:");
+        const char *Sep = " ";
+        if (InitMCPAsyncHook || Handle_async_object)
+                {
+                Canvas.printf("%sAsync",Sep); Sep = ", "; AnyModule = true;
+                }
+        if (OnInitMCPSampleHook || Handle_sampling_hook)
+                {
+                Canvas.printf("%sSample",Sep); Sep = ", "; AnyModule = true;
+                }
+        if (OnStartupMCPSampleExHook)
+                {
+                Canvas.printf("%sSampleEx(+AIcURL)",Sep);
+                Sep = ", "; AnyModule = true;
+                }
+        if (Handle_MRTR_hook || Handle_MRTR_reapttl)
+                {
+                Canvas.printf("%sMRTR",Sep); Sep = ", "; AnyModule = true;
+                }
+        if (!AnyModule) Canvas.printf(" (core only)");
+        Canvas.printf("\n");
+        // -------------------------------
+        // ---- Advanced hooks in use ----
+        // -------------------------------
+        if (Handle_tools_call_hook ||
+            Handle_prompts_get_hook ||
+            Handle_completion_complete_hook)
+                {
+                Canvas.printf("Hooks:");
+                const char *HSep = " ";
+                if (Handle_tools_call_hook)
+                        { Canvas.printf("%stools_call",HSep); HSep = ", "; }
+                if (Handle_prompts_get_hook)
+                        { Canvas.printf("%sprompts_get",HSep); HSep = ", "; }
+                if (Handle_completion_complete_hook)
+                        { Canvas.printf("%scompletion",HSep); HSep = ", "; }
+                Canvas.printf("\n");
+                }
+        // ----------------
+        // ---- Credit ----
+        // ----------------
+        Canvas.printf("Credit: %s\n",About_Credit);
+        if (MCPServer_AspectCredit)
+                {
+                Canvas.printf("        %s\n",MCPServer_AspectCredit);
+                }
+        // -------------------
+        // ---- Inventory ----
+        // -------------------
+        unsigned nTools = MCPInternToolInfoCount
+                        + MCPToolInfoCount
+                        + MCPExternToolInfoCount;
+        unsigned nPrompts = MCPPromptInfoCount + MCPExternPromptInfoCount;
+        Canvas.printf("Inventory: tools=%u, prompts=%u, resources=%u",
+                      nTools,nPrompts,MCPResourceInfoCount);
+        return FormMCPResponse_Text(idRequest,Canvas.GetBuffer());
+        }
+
+// ***************************************************************************
+// **** MCPServer MRTR Support ***********************************************
+// ***************************************************************************
+
+// -------------------------------------
+// ---- FormMCPResult_inputRequired ----
+// -------------------------------------
+//
+//      Generic MRTR (2026-07-28) input_required RESULT envelope. Answers
+//      the original request id, embeds one client-side request (Method +
+//      pre-formed ParamsJSON) under the "inputRequest0" slot, and carries
+//      the requestState token alongside it so the resume can be correlated.
+//      ParamsJSON is injected verbatim (caller escapes).
+//
+
+char* FormMCPResult_inputRequired(JSON_Value &idRequest,
+                                  JSON_Value_String &requestState,
+                                  const char *Method,
+                                  const char *ParamsJSON)
+        {
+        static const char *ProcName = "FormMCPResult_inputRequired";
+        /* ----- OUTPUT (MCP 2026-07-28 MRTR) ------------------------
+        {
+          "jsonrpc": "2.0",
+          "id": 3,
+          "result": {
+            "resultType": "input_required",
+            "inputRequests": {
+              "inputRequest0": {
+                "method": "<Method>",
+                "params": <ParamsJSON>
+              }
+            },
+            "requestState": "<requestState>"
+          }
+        }
+        ----------------------------------------------------------- */
+        if (!requestState.string || !Method || !ParamsJSON)
+                {
+                TERROR(("%s: Missing requestState, Method, or ParamsJSON "
+                        "(id=%s)",ProcName,id2string(idRequest)));
+                return NULL;
+                }
+        // requestState.string is already JSON-escaped (JSON tree convention).
+        const char *jsonState = requestState.string;
+        MemoryPrintf Canvas;
+        Canvas.printf("{");
+        Canvas.printf("\"jsonrpc\":\"2.0\",");
+        Canvas.printf("\"id\":%s,",id2string(idRequest));
+        Canvas.printf("\"result\":{");
+        Canvas.printf("\"resultType\":\"input_required\",");
+        Canvas.printf("\"inputRequests\":{");
+        Canvas.printf("\"inputRequest0\":{");
+        Canvas.printf("\"method\":\"%s\",",Method);
+        Canvas.printf("\"params\":%s",ParamsJSON);
+        Canvas.printf("}"); /* inputRequest0 */
+        Canvas.printf("},"); /* inputRequests */
+        Canvas.printf("\"requestState\":\"%s\"",jsonState);
+        Canvas.printf("}"); /* result */
+        Canvas.printf("}");
+        return Canvas.AquireBuffer();
+        }
+
+// ***************************************************************************
 // **** MCPServer Sampling Support *******************************************
 // ***************************************************************************
 
@@ -2031,33 +2497,63 @@ char* FormMCPRequest_sampling(JSON_Value &idRequest,
         return Canvas.AquireBuffer();
         }
 
-// ***************************************************************************
-// **** MCP Extensions *******************************************************
-// ***************************************************************************
+// -------------------------------------------------
+// ---- FormMCPRequest_sampling (MRTR overload) ----
+// -------------------------------------------------
+//
+//      2026-07-28 sampling as an input_required round trip: builds the
+//      sampling/createMessage params and wraps them via
+//      FormMCPResult_inputRequired. The classic (2024-11-05) overload
+//      above emits the same params inside a REQUEST instead.
+//
 
-// -----------------------------------------------
-// ---- MCP Async Extension (Internal Hooks) ----
-// -----------------------------------------------
-
-void (*InitMCPAsyncHook)() = NULL;
-void (*DeinitMCPAsyncHook)() = NULL;
-char* (*Handle_async_object)(void *UserPtr) = NULL;
-void (*Discard_async_object)(void *UserPtr) = NULL;
-bool (*Cancel_async_object)(MCPInputRequest &MCPRequest) = NULL;
-
-// -----------------------------------------------
-// ---- MCP Sample Extension (Internal Hooks) ----
-// -----------------------------------------------
-
-void (*OnInitMCPSampleHook)(MCPInputRequest &MCPRequest) = NULL;
-char* (*Handle_sampling_hook)(MCPInputRequest &MCPRequest) = NULL;
-void (*DeinitMCPSampleHook)() = NULL;
+char* FormMCPRequest_sampling(JSON_Value &idRequest,
+                              JSON_Value_String &requestState,
+                              const char *SystemPrompt,
+                              const char *UserMessage,
+                              int MaxTokens)
+        {
+        static const char *ProcName = "FormMCPRequest_sampling";
+        if (!UserMessage)
+                {
+                TERROR(("%s: No UserMessage (id=%s)",ProcName,
+                                                     id2string(idRequest)));
+                return NULL;
+                }
+        char *jsonUserMessage = EscapeJSONString(UserMessage);
+        if (!jsonUserMessage)
+                {
+                TERROR(("%s: EscapeJSONString Failed (id=%s)",
+                        ProcName,id2string(idRequest)));
+                return NULL;
+                }
+        char *jsonSystemPrompt = SystemPrompt ? EscapeJSONString(SystemPrompt)
+                                              : NULL;
+        // ---- Build the sampling/createMessage params object ----
+        MemoryPrintf Params;
+        Params.printf("{");
+        Params.printf("\"messages\":[");
+        Params.printf("{\"role\":\"user\",");
+        Params.printf("\"content\":{\"type\":\"text\",\"text\":\"%s\"}}",
+                      jsonUserMessage);
+        Params.printf("],");
+        if (jsonSystemPrompt)
+                {
+                Params.printf("\"systemPrompt\":\"%s\",",jsonSystemPrompt);
+                }
+        Params.printf("\"maxTokens\":%d",MaxTokens);
+        Params.printf("}");
+        FreeEscapeJSONString(&jsonUserMessage);
+        if (jsonSystemPrompt) FreeEscapeJSONString(&jsonSystemPrompt);
+        return FormMCPResult_inputRequired(idRequest,
+                                           requestState,
+                                           "sampling/createMessage",
+                                           Params.GetBuffer());
+        }
 
 // ***************************************************************************
 // **** MCP Main *************************************************************
 // ***************************************************************************
-
-bool MCPServerInitalized = true;
 
 bool MCPMain(const char *InputRequestBuffer, FILE *out)
         {
@@ -2066,6 +2562,7 @@ bool MCPMain(const char *InputRequestBuffer, FILE *out)
         MCPInputRequest *MCPRequest = NULL;
         JSON_Value *idRequest = NULL;
         const char *Method = NULL;
+        int Version = MCPProtocolVersion_20251125;
         // ********************************************
         // **** Handle MCP Client Message Overflow ****
         // ********************************************
@@ -2105,6 +2602,7 @@ bool MCPMain(const char *InputRequestBuffer, FILE *out)
                 // -----------------------------
                 idRequest = MCPRequest->Get_id();
                 Method = MCPRequest->Get_method();
+                Version = MCPRequest->Version();
                 // ****************************************
                 // **** Run Method Produce JSON Output ****
                 // ****************************************
@@ -2177,16 +2675,33 @@ bool MCPMain(const char *InputRequestBuffer, FILE *out)
                                                           "No Id found");
                         break;
                         }
+                if (Version == MCPProtocolVersion_Invalid)
+                        {
+                        TERROR(("%s: Malformed _meta protocolVersion",ProcName));
+                        MCPOutput = FormMCPResponse_ERROR(idRequest,
+                                                          MCPErrorCode_InvalidParms,
+                                                          "Invalid Params",
+                                                          "Malformed _meta field: "
+                                                          "protocolVersion");
+                        break;
+                        }
                 if (strcmp(Method,"initialize") == 0)
                         {
                         if (OnInitMCPSampleHook) 
                                 {
                                 OnInitMCPSampleHook(*MCPRequest);
                                 }
-                        MCPServerInitalized = MCPServer_OnInitialize(*MCPRequest);
+                        MCPServer_OnInitialize(*MCPRequest);
                         MCPOutput = Handle_initialize(*MCPRequest);
                         break;
                         }
+  #if !ClampMCPProtocolVersion_20251125
+                if (strcmp(Method,"server/discover") == 0)
+                        {
+                        MCPOutput = Handle_server_discover(idRequest);
+                        break;
+                        }
+  #endif
                 if (strcmp(Method,"tools/list") == 0)
                         {
                         MCPOutput = Handle_tools_list(idRequest);
@@ -2333,7 +2848,8 @@ enum MCPServerIOMessage_Reason_t
         MIM_MCPRequest,                 // Message from MCPServerIOReader.
         MIM_NotifyAction,               // Handle MCPNotify.
         MIM_MCPResponse,                // Return MCPOutput to client.
-        MIM_MCPAsyncObject              // Route MCPAsyncWork Objects.
+        MIM_MCPAsyncObject,             // Route MCPAsyncWork Objects.
+        MIM_MCPMRTRReapTTL              // Route MRTR timeout. 
         };
 
 struct MCPServerIOMessage               // Requests handled in main thread.
@@ -2374,6 +2890,7 @@ class MCPServerIOMain : public MessageQueueLoop
                 bool PostMCPMessage(char *MCPMessage);
                 bool PostMCPNotify(void *UserPtr);
                 bool PostMCPOutput(char **MCPOutput);
+                bool PostMRTRReapTTL();
                 bool PostShutdown();
                 int Run(FILE *in, FILE *out);
         };
@@ -2477,6 +2994,10 @@ bool MCPServerIOMain::OnMessage(void *Msg)
                         {
                         TERROR(("%s: OnMCPAsyncObject() Failed",ProcName));
                         }
+                }
+        else if (MCPMsg->Reason == MIM_MCPMRTRReapTTL)
+                {
+                if (Handle_MRTR_reapttl) Handle_MRTR_reapttl();
                 }
         else if (MCPMsg->Reason == MIM_Shutdown)
                 {
@@ -2588,6 +3109,10 @@ void MCPServerIOMain::OnMessageDestruct(void *Msg)
                         }
                 else Discard_async_object(MCPMsg->UserPtr);
                 }
+        else if (MCPMsg->Reason == MIM_MCPMRTRReapTTL)
+                {
+                (void)0; // Nothing to do.
+                }
         else if (MCPMsg->UserPtr)
                 {
                 TERROR(("%s: Can't handle UserPtr for MIM_Reason: %d",
@@ -2604,6 +3129,23 @@ bool MCPServerIOMain::PostAsyncObject(void *UserPtr)
         bool Status = false;
         MCPServerIOMessage *MCPMsg;
         MCPMsg = new MCPServerIOMessage(MIM_MCPAsyncObject,UserPtr);
+        if (!MCPMsg)
+                {
+                TERROR(("%s: Can't allocate MCPServerIOMessage",ProcName));
+                }
+        else    {
+                Status = Send(MCPMsg);
+                if (!Status) delete MCPMsg;
+                }
+        return Status;
+        }
+
+bool MCPServerIOMain::PostMRTRReapTTL()
+        {
+        const char *ProcName = "MCPServerIOMain::PostMRTRReapTTL";
+        bool Status = false;
+        MCPServerIOMessage *MCPMsg;
+        MCPMsg = new MCPServerIOMessage(MIM_MCPMRTRReapTTL,NULL);
         if (!MCPMsg)
                 {
                 TERROR(("%s: Can't allocate MCPServerIOMessage",ProcName));
@@ -2744,6 +3286,16 @@ bool PostAsyncObject(void *UserPtr)     // Return an MCPAsyncWork to main.
         return MCPServerMain.PostAsyncObject(UserPtr);
         }
 
+// **************************
+// **** PostAsyncObject ****
+// **************************
+
+void PostMRTRReapTTL()                  // Invoke MRTR TripManager ReapTTL.
+        {
+        MCPServerMain.PostMRTRReapTTL();
+        return;
+        }
+
 // ***********************
 // **** PostMCPOutput ****
 // ***********************
@@ -2826,11 +3378,42 @@ const char* MCPInputTestRequest_Init =
         "  \"id\": 1,"
         "  \"method\": \"initialize\","
         "  \"params\": {"
-        "    \"protocolVersion\": \"2024-11-05\","
+#if ClampMCPProtocolVersion_20251125
+        "    \"protocolVersion\": \"2025-11-25\","
+#else
+        "    \"protocolVersion\": \"2026-07-28\","
+#endif
         "    \"capabilities\": {},"
         "    \"clientInfo\": { \"name\": \"vscode-copilot\", \"version\": \"1.0.0\" }"
         "  }"
         "}";
+
+#if ClampMCPProtocolVersion_20251125
+        const char* MCPInputTestRequest_About =
+                "{"
+                 " \"jsonrpc\": \"2.0\","
+                 " \"id\": 3,"
+                 " \"method\": \"tools/call\","
+                 " \"params\": {"
+                 "   \"name\": \"about_tsar-mcp\","
+                 "   \"arguments\": {}"
+                 " }"
+                 "}";
+#else /* MCPProtocolVersion_20260728 */
+        const char* MCPInputTestRequest_About =
+                "{"
+                 " \"jsonrpc\": \"2.0\","
+                 " \"id\": 3,"
+                 " \"method\": \"tools/call\","
+                 " \"params\": {"
+                 "   \"name\": \"about_tsar-mcp\","
+                 "   \"arguments\": {},"
+                 "   \"_meta\": {"
+                 "     \"io.modelcontextprotocol/protocolVersion\": \"2026-07-28\""
+                 "   }"
+                 " }"
+                 "}";
+#endif
 
 const char* MCPInputTestRequest_List =
         "{"
@@ -2839,6 +3422,18 @@ const char* MCPInputTestRequest_List =
         "  \"method\": \"tools/list\","
         "  \"params\": {}"
         "}"; 
+
+const char* MCPInputTestRequest_Discover =
+        "{"
+        "  \"jsonrpc\": \"2.0\","
+        "  \"id\": \"disc-1\","
+        "  \"method\": \"server/discover\","
+        "  \"params\": {"
+        "    \"_meta\": {"
+        "      \"io.modelcontextprotocol/protocolVersion\": \"2026-07-28\""
+        "    }"
+        "  }"
+        "}";
 
 bool MCPTest(FILE *out)
         {
@@ -2852,6 +3447,14 @@ bool MCPTest(FILE *out)
         // Tool List
         // ---------
         Status = Status && MCPMain(MCPInputTestRequest_List,out);
+        // --------------
+        // About_tsar-mcp
+        // --------------
+        Status = Status && MCPMain(MCPInputTestRequest_About,out);
+        // -----------------------
+        // Stateless Discovery
+        // -----------------------
+        Status = Status && MCPMain(MCPInputTestRequest_Discover,out);
         // ----------------
         // Aspect Test Call
         // ----------------
@@ -2869,10 +3472,22 @@ bool MCPTest(FILE *out)
 
 #ifdef _WIN32
 
-static void InitalizeSymbolEngine()
+static void SafeWarmSnapshot()
         {
         InvocationCallStack Stack;
         Stack.Snapshot();
+        return;
+        }
+
+static void InitializeSymbolEngine()
+        {
+        __try   {
+                SafeWarmSnapshot();  // In a new stack-frame (see SnapStack.h)
+                }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+                {
+                TERROR(("InitializeSymbolEngine: symbol warm-up faulted (ignored)"));
+                }
         return;
         }
 
@@ -2935,32 +3550,18 @@ int MCPExceptionHandler(const char *ProcName, EXCEPTION_POINTERS *EXInfo)
 // **** main() ***************************************************************
 // ***************************************************************************
 
+static FILE *LevelTraceFile = NULL;
+static bool JSONParserInitialized = false;
+
+struct  {
+        int client_fileno;
+        FILE *clientout;
+        void *hStdout;
+        } static stdoutMask = {-1,NULL,NULL};
+
 static bool _RunMCPServer(bool TestMode)
         {
         bool Status = true;
-        // ====================================================
-        // ==== Isolate MCP transport stream (Hide stdout) ====
-        // ------------------------------------------------
-        // For rogue libraries or mis-behaving aspects.
-        // ====================================================
-        fflush(stdout);
-        int client_fileno = dup(fileno(stdout));
-        FILE *clientout = fdopen(client_fileno,"w");
-        if (!clientout)
-                {
-                TERROR(("Can't isolate stdout; fdopen() failed (%d).",errno));
-                close(client_fileno);
-                return false;
-                }
-        dup2(fileno(stderr),fileno(stdout));
-  #ifdef _WIN32
-        // ------------------------------------------
-        // Windows specific (for ironclad isolation).
-        // ------------------------------------------
-        HANDLE hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
-        HANDLE hStderr = GetStdHandle(STD_ERROR_HANDLE);
-        SetStdHandle(STD_OUTPUT_HANDLE,hStderr);
-  #endif
         // =======================
         // ==== Run MainLoops ====
         // =======================
@@ -2975,14 +3576,14 @@ static bool _RunMCPServer(bool TestMode)
                         {
                         TERROR(("Shouldn't run Test mode asynchronously."));
                         }
-                Status = MCPTest(clientout);
+                Status = MCPTest(stdoutMask.clientout);
                 }
         else if (!MCPServer_Asynchronous)
                 {
                 // ---------------------
                 // ---- Syncronious ----
                 // ---------------------
-                Status = MCPMainLoop(stdin,clientout);
+                Status = MCPMainLoop(stdin,stdoutMask.clientout);
                 }
         else    {
                 // ----------------------
@@ -2995,7 +3596,7 @@ static bool _RunMCPServer(bool TestMode)
                         TERROR(("Can't Start MCPServerReader"));
                         }
                 else    {
-                        int rc = MCPServerMain.Run(stdin,clientout);
+                        int rc = MCPServerMain.Run(stdin,stdoutMask.clientout);
                         if (MCPServerReader.IsStarted()) 
                                 {
                                 MCPServerReader.Kill(true);
@@ -3003,16 +3604,6 @@ static bool _RunMCPServer(bool TestMode)
                         Status = rc == 0;
                         }
                 }
-        // ========================
-        // ==== Restore stdout ====
-        // ========================
-  #ifdef _WIN32
-        SetStdHandle(STD_OUTPUT_HANDLE,hStdout);
-  #endif
-        fflush(clientout);
-        fflush(stdout);
-        dup2(client_fileno,fileno(stdout));
-        fclose(clientout);
         return Status;
         }
 
@@ -3021,7 +3612,7 @@ static bool RunMCPServer(bool TestMode)
         static const char *ProcName = "RunMCPServer";
         bool Status = false;
   #ifdef _WIN32
-        InitalizeSymbolEngine();
+        InitializeSymbolEngine();
         __try   {
   #endif
                 Status = _RunMCPServer(TestMode);
@@ -3049,9 +3640,15 @@ static void Help()
         return;
         }
 
-int main(int argc, const char *argv[])
+// -----------------------
+// ---- main_mcp_init ----
+// -----------------------
+
+void main_mcp_deinit();
+
+int main_mcp_init(int argc, const char *argv[])
         {
-        static const char *ProcName = "main";
+        static const char *ProcName = "main_mcp_init";
         // **********************
         // **** Process Args ****
         // **********************
@@ -3064,11 +3661,7 @@ int main(int argc, const char *argv[])
                     (argv[argi][1] == 'h' || argv[argi][1] == '?'))
                         {
                         Help();
-                        return 0;
-                        }
-                else if (stricmp(argv[argi],"test") == 0)
-                        {
-                        TestMode = true;
+                        return 2;
                         }
                 else if (stricmp(argv[argi],"-trace") == 0)
                         {
@@ -3082,11 +3675,14 @@ int main(int argc, const char *argv[])
                         {
                         SetMaxTraceLevel(TRACELEVEL_DEBUG);
                         }
+                else if (stricmp(argv[argi],"test") == 0)
+                        {
+                        TestMode = true;
+                        }
                 }
         // *********************
         // **** Setup Trace ****
         // *********************
-        FILE *LevelTraceFile = NULL;
         if (!TestMode)
                 {
                 MemoryPrintf Canvas;
@@ -3099,27 +3695,116 @@ int main(int argc, const char *argv[])
                 if (!LevelTraceFile)
                         {
                         fprintf(stderr,"Can't Open: %s\n",TraceFilename);
-                        return 1;
+                        return 3;
                         }
                 fprintf(stderr,"Trace File: %s\n",TraceFilename);
                 fflush(stderr);
                 SetLevelTraceFunction(LevelTraceFileTrace,LevelTraceFile);
                 TINFO(("Trace File: %s",TraceFilename));
                 }
-        // ********************
-        // **** Initialize ****
-        // ********************
+        // ****************************************************
+        // **** Isolate MCP transport stream (Hide stdout) ****
+        // ****************************************************
+        // For rogue libraries or mis-behaving aspects.
+        // ****************************************************
+        fflush(stdout);
+        stdoutMask.client_fileno = dup(fileno(stdout));
+        stdoutMask.clientout = fdopen(stdoutMask.client_fileno,"w");
+        if (!stdoutMask.clientout)
+                {
+                TERROR(("Can't isolate stdout; fdopen() failed (%d).",errno));
+                close(stdoutMask.client_fileno);
+                stdoutMask.client_fileno = -1;
+                main_mcp_deinit();
+                return 4;
+                }
+        dup2(fileno(stderr),fileno(stdout));
+  #ifdef _WIN32
+        // ------------------------------------------
+        // Windows specific (for ironclad isolation).
+        // ------------------------------------------
+        stdoutMask.hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
+        HANDLE hStderr = GetStdHandle(STD_ERROR_HANDLE);
+        SetStdHandle(STD_OUTPUT_HANDLE,hStderr);
+  #endif
+        // ********************************
+        // **** Initialize JSON Parser ****
+        // ********************************
         InitJSONParser();
-        if (InitMCPAsyncHook) InitMCPAsyncHook();
+        JSONParserInitialized = true;
+        return 0;
+        }
+
+// ------------------
+// ---- main_mcp ----
+// ------------------
+
+int main_mcp()
+        {
+        static const char *ProcName = "main_mcp";
+        // **********************
+        // **** Process Args ****
+        // **********************
+        bool TestMode = false;
+        for (int argi = 1; argi < MCPServer_argc; argi++)
+                {
+                if (stricmp(MCPServer_argv[argi],"test") == 0)
+                        {
+                        TestMode = true;
+                        }
+                }
         // ************************
         // **** Run MCP Server ****
         // ************************
-        bool Status = RunMCPServer(TestMode);
-        if (MCPServerInitalized) MCPServer_OnShutdown();
-        if (DeinitMCPAsyncHook) DeinitMCPAsyncHook();
-        if (DeinitMCPSampleHook) DeinitMCPSampleHook();
+        bool Status = MCPServer_OnStartup();
+        if (!Status)
+                {
+                TERROR(("%s: MCPServer_OnStartup failed.",ProcName));
+                }
+        else    {
+                if (OnStartupMCPSampleExHook) OnStartupMCPSampleExHook();
+                if (InitMCPAsyncHook) InitMCPAsyncHook();
+                Status = RunMCPServer(TestMode);
+                if (DeinitMCPAsyncHook) DeinitMCPAsyncHook();
+                if (DeinitMCPSampleHook) DeinitMCPSampleHook();
+                if (OnShutdownMRTRHook) OnShutdownMRTRHook();
+                MCPServer_OnShutdown();
+                }
         MCPServerMain.ClearQueue();
-        DeinitJSONParser();
+        return Status ? 0 : 1;
+        }
+
+// -------------------------
+// ---- main_mcp_deinit ----
+// -------------------------
+
+void main_mcp_deinit()
+        {
+        static const char *ProcName = "main_mcp_deinit";
+        if (JSONParserInitialized)
+                {
+                DeinitJSONParser();
+                JSONParserInitialized = false;
+                }
+        // ************************
+        // **** Restore stdout ****
+        // ************************
+  #ifdef _WIN32
+        if (stdoutMask.hStdout)
+                {
+                SetStdHandle(STD_OUTPUT_HANDLE,stdoutMask.hStdout);
+                stdoutMask.hStdout = NULL;
+                }
+  #endif
+        if (stdoutMask.clientout)
+                {
+                fflush(stdoutMask.clientout);
+                fflush(stdout);
+                dup2(stdoutMask.client_fileno,fileno(stdout));
+                fclose(stdoutMask.clientout);
+                stdoutMask.clientout = NULL;
+                stdoutMask.client_fileno = -1;
+                }
         // ***********************
         // **** Cleanup Trace ****
         // ***********************
@@ -3127,9 +3812,36 @@ int main(int argc, const char *argv[])
                 {
                 SetLevelTraceFunction(NULL,NULL);
                 fclose(LevelTraceFile);
+                LevelTraceFile = NULL;
                 }
-        return Status ? 0 : 1;
+        return;
         }
+
+// ==============
+// ==== main ====
+// ==============
+
+#ifndef NO_MAIN_MCP
+
+int main(int argc, const char *argv[])
+        {
+        static const char *ProcName = "main";
+        int rc_main = main_mcp_init(argc,argv);
+        if (rc_main)
+                {
+                TERROR(("%s: main_mcp_init() returned: %d",ProcName,rc_main));
+                return rc_main;
+                }
+        rc_main = main_mcp();
+        if (rc_main)
+                {
+                TERROR(("%s: main_mcp() returned: %d",ProcName,rc_main));
+                }
+        main_mcp_deinit();
+        return rc_main;
+        }
+
+#endif /* NO_MAIN_MCP */
 
 // ****************************************************************************
 // ******************************* End of File ********************************

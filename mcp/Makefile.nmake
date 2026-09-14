@@ -1,5 +1,10 @@
 # ============================================================================
 # MCPServer Makefile (NMAKE - Visual Studio 2022)
+#
+# TSAR (Tools Slightly Above the Runtime)
+# Copyright (c) 2026 International Business Machines Corporation
+# Copyright (c) 2026 Eric Kass
+# SPDX-License-Identifier: MIT
 # ============================================================================
 #
 # Builds each MCPServer aspect as a separate executable:
@@ -56,7 +61,7 @@ LINK = link.exe
 
 # --- Compiler Flags ---
 
-CFLAGS_BASE = /nologo /W3 /EHa \
+CFLAGS_BASE = /nologo /W3 /EHa /Oy- \
               /D "WIN32" /D "_CONSOLE" /D "_MBCS" /D "_USE_EXPRESSION_S" \
               /Fd"$(O)\\" /c
 
@@ -96,10 +101,12 @@ CORE_OBJS = \
 COMMONC_OBJS = \
     $(O)\ASThread.obj \
     $(O)\AutoString.obj \
+    $(O)\cURLRunner.obj \
     $(O)\ebcdic.obj \
     $(O)\LevelTrace.obj \
     $(O)\LinkList.obj \
     $(O)\MEMprintf.obj \
+    $(O)\popenNT.obj \
     $(O)\SnapStack.obj
 
 COMMONC_NET_OBJS = \

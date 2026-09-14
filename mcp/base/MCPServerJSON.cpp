@@ -9,7 +9,6 @@
  * SPDX-License-Identifier: MIT
  */
 //
-//
   
 #include <ctype.h>
 #include <stdio.h>
@@ -59,14 +58,17 @@
 char* BuildFQFN(const char *Path, const char *Filename)
         {
         static const char *ProcName = "BuildFQFN";
-        if (!Filename) return NULL;
+        if (!Filename && !Path) return NULL;
         size_t PathLength = Path ? strlen(Path) : 0;
-        size_t FileLength = strlen(Filename);
+        size_t FileLength = Filename ? strlen(Filename) : 0;
         size_t FullLength = PathLength + FileLength + 1;
         char *Fullname = (char *)malloc(FullLength + 1);
         if (!Fullname)
                 {
-                TERROR(("%s: Alloc Error Filename: %s",ProcName,Filename));
+                TERROR(("%s: Alloc Error Filename: %s",ProcName,
+                                                        Filename 
+                                                        ? Filename 
+                                                        : Path));
                 return NULL;
                 }
         bool HasSeperator = false;
@@ -79,7 +81,11 @@ char* BuildFQFN(const char *Path, const char *Filename)
                 {
                 for (unsigned i=0; i < PathLength; i++)
                         {
-                        if (*Src == FILE_SEPERATOR_WIN || *Src == FILE_SEPERATOR_UNIX)
+                        if (*Src == '"' || *Src == '\'')
+                                {
+                                Src++;  // Strip quotes.
+                                }
+                        else if (*Src == FILE_SEPERATOR_WIN || *Src == FILE_SEPERATOR_UNIX)
                                 {
                                 if (!HasSeperator) *Dest++ = FILE_SEPERATOR;
                                 HasSeperator = true;
@@ -90,7 +96,7 @@ char* BuildFQFN(const char *Path, const char *Filename)
                                 *Dest++ = *Src++;
                                 }
                         }
-                if (!HasSeperator) *Dest++ = FILE_SEPERATOR;
+                if (!HasSeperator && FileLength) *Dest++ = FILE_SEPERATOR;
                 }
         // --------------
         // ---- File ----
@@ -99,7 +105,11 @@ char* BuildFQFN(const char *Path, const char *Filename)
         Src = Filename;
         for (unsigned i=0; i < FileLength; i++)
                 {
-                if (*Src == FILE_SEPERATOR_WIN || *Src == FILE_SEPERATOR_UNIX)
+                if (*Src == '"' || *Src == '\'')
+                        {
+                        Src++;  // Strip quotes.
+                        }
+                else if (*Src == FILE_SEPERATOR_WIN || *Src == FILE_SEPERATOR_UNIX)
                         {
                         if (!HasSeperator) *Dest++ = FILE_SEPERATOR;
                         HasSeperator = true;
@@ -516,6 +526,58 @@ const char* MCPInputRequest::Get_param_string(const char *Key)
         }
 
 // ***************************************************************************
+// **** MCP Protocol Version (parsed YYYYMMDD from _meta) ********************
+// ***************************************************************************
+//
+//      MCPInputRequest::Version() reports the per-request protocol version
+//      from params._meta["io.modelcontextprotocol/protocolVersion"]
+//      ("YYYY-MM-DD") as an integer YYYYMMDD -- exactly what it finds, no
+//      policy. 
+//
+//      _meta absent (stateful handshake)       -> MCPProtocolVersion_20251125.
+//      _meta present, protocolVersion absent   -> MCPProtocolVersion_20251125.
+//      protocolVersion present but malformed   -> MCPProtocolVersion_Invalid.
+//
+// ***************************************************************************
+
+static const char metaVersion[] = "io.modelcontextprotocol/protocolVersion";
+
+int MCPProtocolVersionInt(const char *Version)
+        {
+        //
+        // Parse an MCP "YYYY-MM-DD" protocol string to YYYYMMDD.
+        // Returns 0 if malformed.
+        //
+        if (!Version) return MCPProtocolVersion_Invalid;
+        int V = 0;
+        int nDigits = 0;
+        for (const char *p = Version; *p && nDigits < 8; p++)
+                {
+                if (*p >= '0' && *p <= '9')
+                        {
+                        V = V * 10 + (*p - '0');
+                        nDigits++;
+                        }
+                }
+        return nDigits == 8 ? V : MCPProtocolVersion_Invalid;
+        }
+
+int MCPInputRequest::Version()
+        {
+        JSON_Object *Params = Get_params();
+        if (!Params) return MCPProtocolVersion_20251125;
+        JSON_Object *Meta = Params->Find_member_object("_meta");
+        if (!Meta) return MCPProtocolVersion_20251125;
+        // ----------------------------------------------------------------
+        // ---- Only protocolVersion (not _meta itself) marks 20260728 ----
+        // ---- _meta also carries progressToken, traceparent, etc.    ----
+        // ----------------------------------------------------------------
+        const char *Version = Meta->Find_member_string(metaVersion);
+        if (!Version) return MCPProtocolVersion_20251125;
+        return MCPProtocolVersionInt(Version);
+        }
+
+// ***************************************************************************
 // **** Parse JSON Input Request *********************************************
 // ***************************************************************************
 
@@ -581,6 +643,44 @@ bool TraceJSON(const char *JSONBuffer, bool Pretty)
         return true;
         }
            
+// ***************************************************************************
+// **** ExtractSampleText ****************************************************
+// ***************************************************************************
+//
+//      Pull the LLM text out of a sampling response, spanning both
+//      protocol shapes so callers stay version-agnostic:
+//        Classic (2024-11-05 / external): result.content.text
+//        MRTR    (2026-07-28 resume):     inputResponses[0]
+//                                         .content.content.text
+//      A flattened .content.text is tolerated for the MRTR shape.
+//
+// ***************************************************************************
+
+const char* ExtractSampleText(MCPInputRequest &MCPRequest)
+        {
+        // ---- Classic sampling result (native MCP + external). ----
+        JSON_Object *Result = MCPRequest.Get_result();
+        if (Result)
+                {
+                JSON_Object *Content = Result->Find_member_object("content");
+                return Content ? Content->Find_member_string("text") : NULL;
+                }
+        // ---- MRTR resume: sole inputResponses entry, positional. ----
+        JSON_Object *Params = MCPRequest.Get_params();
+        JSON_Object *Responses = Params
+                                 ? Params->Find_member_object("inputResponses")
+                                 : NULL;
+        if (!Responses || Responses->nMembers == 0) return NULL;
+        JSON_Value *First = Responses->Members[0]->Value;
+        if (!First || !First->isObject()) return NULL;
+        JSON_Object *Response = (JSON_Object *)First;
+        JSON_Object *Content = Response->Find_member_object("content");
+        if (!Content) return NULL;
+        JSON_Object *Message = Content->Find_member_object("content");
+        return Message ? Message->Find_member_string("text")
+                       : Content->Find_member_string("text");
+        }
+
 // ***************************************************************************
 // **** PrintJSONObject to MemoryPrintf Canvas *******************************
 // ***************************************************************************
