@@ -1,0 +1,24 @@
+{
+  "name": "TSAR-MCP Markdown Viewer",
+  "short_name": "TSAR MD Viewer",
+  "start_url": "./MarkdownViewer.html",
+  "scope": "./",
+  "display": "standalone",
+  "theme_color": "#ffffff",
+  "background_color": "#ffffff",
+  "icons": [
+    {
+      "src": "../../assets/tsar-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "file_handlers": [
+    {
+      "action": "./MarkdownViewer.html",
+      "accept": {
+        "text/markdown": [".md", ".markdown"]
+      }
+    }
+  ]
+}

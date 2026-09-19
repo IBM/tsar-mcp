@@ -17,9 +17,30 @@
 <head>
  <meta charset="UTF-8">
  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
- <title>TSAR-MCP Markdown Viewer</title>
+ <title>TSAR-MCP Markdown Viewer (on IBM GitHub)</title>
+  <meta name="description" content="A privacy-first, self-contained local markdown viewer. Read and print markdown (.md) files directly in your browser, or export as html.">
+ <link rel="manifest" href="manifest.json">
  <link rel="icon" type="image/svg+xml" href="https://ibm.github.io/tsar-mcp/assets/tsar-icon.svg">
  
+ <!-- JSON-LD Schema for Google Search -->
+ <script type="application/ld+json">
+ {
+   "@context": "https://schema.org",
+   "@type": "WebApplication",
+   "name": "TSAR-MCP Markdown Viewer",
+   "url": "https://ibm.github.io/tsar-mcp/tools/MarkdownViewer/MarkdownViewer.html",
+   "description": "A privacy-first, self-contained local markdown viewer. Read and print markdown (.md) files directly in your browser, or export as html.",
+   "applicationCategory": "DeveloperApplication",
+   "operatingSystem": "Any",
+   "browserRequirements": "Requires a modern browser with File System Access API support.",
+   "offers": {
+     "@type": "Offer",
+     "price": "0",
+     "priceCurrency": "USD"
+   }
+ }
+ </script>
+
   <!-- Markdown & Highlight.js -->
  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js" integrity="sha384-NNQgBjjuhtXzPmmy4gurS5X7P4uTt1DThyevz4Ua0IVK5+kazYQI1W27JHjbbxQz" crossorigin="anonymous"></script>
  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js" integrity="sha384-F/bZzf7p3Joyp5psL90p/p89AZJsndkSoGwRpXcZhleCWhd8SnRuoYo4d0yirjJp" crossorigin="anonymous"></script>
@@ -191,6 +212,13 @@
  padding: 0.5rem 0;
  }
 
+#fileInput {
+  width: 100%;
+  max-width: 600px; /* Gives the filename plenty of room to stretch out */
+  font-family: inherit;
+  margin-bottom: 0.5rem;
+}
+
  @media (max-width: 1000px) { 
  #toc { display: none; } 
  }
@@ -222,12 +250,28 @@
 
  <div class="wrapper">
  <main>
- <input type="file" id="fileInput" accept=".md, .txt" />
- <div id="content">Select a file to begin...</div>
+ <input type="file" id="fileInput" accept=".md, .markdown, .txt" />
+ <div id="content">
+   <h1><a href="https://github.com/IBM/tsar-mcp" target="_blank" style="text-decoration: none; color: inherit; border-bottom: 2px dashed var(--link-color);">TSAR-MCP</a> Markdown Viewer</h1>
+   <p>Choose a file above to begin...</p>
+   <hr>
+   <p><strong>About this tool:</strong> AI natively speaks Markdown and typically generates output artifacts in <code>.md</code> format. While IDEs like VS Code are excellent renderers, this is a lightweight, self-contained <strong>local markdown viewer</strong> that runs entirely client-side in your browser.</p>
+   <p>Whether loading the Markdown Viewer HTML file off your drive or from GitHub Pages, it always runs entirely client-side in your browser to render Markdown, code syntax, and KaTeX math.</p>
+   <ul>
+     <li><strong>Accessibility:</strong> Reachable from anywhere, including mobile devices, and installable as an offline PWA.</li>
+     <li><strong>Features:</strong> Includes floating navigation, light/dark mode, print formatting, and HTML export.</li>
+     <li><strong>Privacy:</strong> Your Markdown documents never leave your device.</li>
+   </ul>
+ </div>
  </main>
  <nav id="toc">
  <div style="font-weight: bold; margin-bottom: 0.5rem; text-transform: uppercase; font-size: 0.8rem; letter-spacing: 1px;">Table of Contents</div>
  <ul id="toc-list"></ul>
+ 
+ <!-- NEW: Unobtrusive TSAR-MCP Backlink -->
+ <div style="margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--toc-border); font-size: 0.75rem; opacity: 0.6;">
+   Part of the <a href="https://github.com/IBM/tsar-mcp" target="_blank" style="color: var(--text-main); font-weight: bold;">IBM/tsar-mcp</a> project.
+ </div>
  </nav>
  </div>
 
@@ -325,59 +369,86 @@ ${content}
  URL.revokeObjectURL(url);
  });
 
+ // --- REFACTORED: Extracted render logic to handle both manual uploads and OS file handling ---
+ function renderMarkdownContent(markdownText) {
+   const contentDiv = document.getElementById('content');
+   contentDiv.innerHTML = marked.parse(markdownText);
+   
+   // Render KaTeX math equations
+   renderMathInElement(contentDiv, {
+     delimiters: [
+       {left: '$$', right: '$$', display: true},
+       {left: '$', right: '$', display: false},
+       {left: '\\(', right: '\\)', display: false},
+       {left: '\\[', right: '\\]', display: true}
+     ],
+     throwOnError: false
+   });
+
+   const tocList = document.getElementById('toc-list');
+   tocList.innerHTML = '';
+   const headings = contentDiv.querySelectorAll('h1, h2, h3');
+   
+   headings.forEach((h, index) => {
+     const id = `nav-${index}`;
+     h.id = id;
+     
+     const li = document.createElement('li');
+     li.className = `toc-${h.tagName.toLowerCase()}`;
+     const a = document.createElement('a');
+     a.href = `#${id}`;
+     a.textContent = h.textContent;
+     li.appendChild(a);
+     tocList.appendChild(li);
+   });
+
+   document.querySelectorAll('pre').forEach(block => {
+     const button = document.createElement('button');
+     button.innerText = 'Copy';
+     button.className = 'copy-btn';
+     button.onclick = () => {
+       navigator.clipboard.writeText(block.querySelector('code').innerText);
+       button.innerText = 'Copied!';
+       setTimeout(() => button.innerText = 'Copy', 2000);
+     };
+     block.appendChild(button);
+   });
+
+   hljs.highlightAll();
+ }
+
  document.getElementById('fileInput').addEventListener('change', function(event) {
- const file = event.target.files[0];
- if (!file) return;
+   const file = event.target.files[0];
+   if (!file) return;
 
- const reader = new FileReader();
- reader.onload = function(e) {
- const contentDiv = document.getElementById('content');
- contentDiv.innerHTML = marked.parse(e.target.result);
- 
- // Render KaTeX math equations
- renderMathInElement(contentDiv, {
- delimiters: [
- {left: '$$', right: '$$', display: true},
- {left: '$', right: '$', display: false},
- {left: '\\(', right: '\\)', display: false},
- {left: '\\[', right: '\\]', display: true}
- ],
- throwOnError: false
+   const reader = new FileReader();
+   reader.onload = function(e) {
+     renderMarkdownContent(e.target.result);
+   };
+   reader.readAsText(file);
  });
 
- const tocList = document.getElementById('toc-list');
- tocList.innerHTML = '';
- const headings = contentDiv.querySelectorAll('h1, h2, h3');
- 
- headings.forEach((h, index) => {
- const id = `nav-${index}`;
- h.id = id;
- 
- const li = document.createElement('li');
- li.className = `toc-${h.tagName.toLowerCase()}`;
- const a = document.createElement('a');
- a.href = `#${id}`;
- a.textContent = h.textContent;
- li.appendChild(a);
- tocList.appendChild(li);
- });
+ // --- Service Worker Registration for PWA Installability ---
+ if ('serviceWorker' in navigator) {
+   window.addEventListener('load', () => {
+     navigator.serviceWorker.register('./MarkdownService.js')
+       .then(reg => console.log('Service Worker registered', reg.scope))
+       .catch(err => console.error('Service Worker registration failed:', err));
+   });
+ }
 
- document.querySelectorAll('pre').forEach(block => {
- const button = document.createElement('button');
- button.innerText = 'Copy';
- button.className = 'copy-btn';
- button.onclick = () => {
- navigator.clipboard.writeText(block.querySelector('code').innerText);
- button.innerText = 'Copied!';
- setTimeout(() => button.innerText = 'Copy', 2000);
- };
- block.appendChild(button);
- });
-
- hljs.highlightAll();
- };
- reader.readAsText(file);
- });
+ // --- OS File Handling API (Launch Queue) ---
+ if ('launchQueue' in window) {
+   window.launchQueue.setConsumer(async (launchParams) => {
+     if (!launchParams.files.length) return;
+     
+     const fileHandle = launchParams.files[0];
+     const file = await fileHandle.getFile();
+     const contents = await file.text();
+     
+     renderMarkdownContent(contents);
+   });
+ }
  </script>
 </body>
 </html>
