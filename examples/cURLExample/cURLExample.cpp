@@ -11,6 +11,9 @@
 //
 
 #include <stdio.h>
+#ifndef _WIN32
+        #include <unistd.h>
+#endif
 
 #include <ASThread.h>
 #include <LevelTrace.h>
@@ -25,7 +28,7 @@
 
 int cURLExample()
         {
-        const char *URL = "https://httpbin.org/post";
+        const char *URL = "http://httpbin.org/post";
         const char *PostFile = "Post_httpbin.json";
         // ---------------------------------
         // ---- Write HTTP Post Content ----
@@ -44,7 +47,6 @@ int cURLExample()
         // ------------------------------
         MemoryPrintf Options;
         Options.printf("-H \"Content-Type: application/json\" "
-                       "--request POST "
                        "--data @%s",PostFile);
         // ---------------------
         // ---- Invoke cURL ----

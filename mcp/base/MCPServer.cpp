@@ -27,6 +27,7 @@
         #define isatty _isatty
         #define EOFSequence "^Z"
 #else
+        #include <fcntl.h>
         #include <unistd.h>
         #ifndef stricmp
                 #define stricmp strcasecmp
@@ -3718,6 +3719,13 @@ int main_mcp_init(int argc, const char *argv[])
                 main_mcp_deinit();
                 return 4;
                 }
+  #ifndef _WIN32
+        // -----------------------------------------------
+        // Children shouldn't inheret the [hidden] stream.
+        // -----------------------------------------------
+        int f0 = fcntl(stdoutMask.client_fileno,F_GETFD);
+        fcntl(stdoutMask.client_fileno,F_SETFD, f0 | FD_CLOEXEC);
+  #endif
         dup2(fileno(stderr),fileno(stdout));
   #ifdef _WIN32
         // ------------------------------------------

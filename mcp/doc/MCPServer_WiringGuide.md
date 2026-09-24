@@ -59,7 +59,7 @@ The AI client runs `ssh.exe` locally. The SSH client securely connects to the re
 
 If you are on a Windows environment and prefer to use the PuTTY suite for SSH management, you can use `PLINK.EXE`.
 
-When using Plink, it is highly recommended to include the `-batch` flag. This disables all interactive prompts (like host key warnings), ensuring the standard output stream remains pure JSON-RPC data.
+When using Plink, include the `-batch` flag. This disables all interactive prompts (like host key warnings), ensuring the standard output stream remains pure JSON-RPC data. Do not allocate a pseudo-terminal (`-t`) when wiring to an AI client (see Troubleshooting).
 
 **Example: `mcp.json**`
 
@@ -70,7 +70,6 @@ When using Plink, it is highly recommended to include the `-batch` flag. This di
       "type": "stdio",
       "command": "C:\\Util\\PuTTY\\PLINK.EXE",
       "args": [
-        "-t",
         "-batch",
         "eric@taurus",
         "Programs/tsar-mcp/mcp/build/Release/MCPServer_helloWorld"
@@ -86,6 +85,7 @@ When using Plink, it is highly recommended to include the `-batch` flag. This di
 * **`-debug`:** Appending this argument to the TSAR-MCP execution command will output diagnostic information (typically routed to the client's debug logs or a local trace file, depending on your aspect implementation).
 * **`-trace`:** Enables deeper runtime tracing within the `CommonC` foundation.
 * **Connection Hangs:** If a remote SSH/Plink connection hangs upon initialization, verify that your SSH keys are correctly loaded in `ssh-agent` or Pageant. Any underlying prompt for a passphrase or fingerprint confirmation will halt the MCP handshake.
+* **Pseudo-terminal (`-t`):** Do not allocate a pty when wiring a server to an AI client. TSAR-MCP is a raw `stdio` transport, and a remote pty's line discipline can interpret client teardown bytes (e.g. `Ctrl-Z`) as the Unix SUSP signal — suspending rather than ending the process and hanging the connection on shutdown. Omit `-t` (the OpenSSH `ssh.exe` examples already do). The one exception is *manual* interactive testing, where `-t` is needed so Plink provides a terminal to line-buffer your typed input; reserve it for that case only.
 
 ```
 

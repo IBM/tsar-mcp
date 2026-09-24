@@ -1,0 +1,244 @@
+# ============================================================================
+# MCPServer Master Makefile (AIX make + IBM XL C/C++, 64-bit)
+#
+# TSAR (Tools Slightly Above the Runtime)
+# Copyright (c) 2026 International Business Machines Corporation
+# Copyright (c) 2026 Eric Kass
+# SPDX-License-Identifier: MIT
+# ============================================================================
+#
+# Builds each MCPServer aspect as a separate executable.
+#
+# Written for the native AIX make utility (/usr/bin/make), NOT GNU make:
+#   - No ifeq/filter/error, no % pattern rules, no VPATH, no $< (empty in
+#     explicit rules). Each object has an explicit recipe naming its source.
+#   - CFG selection is emulated with a recursive sub-make (see 'all').
+#   - Requires IBM XL C/C++ (xlC). Builds 64-bit objects (-q64).
+#
+# Usage:
+#   make -f Makefile.aix                 Build all aspects (Release)
+#   make -f Makefile.aix CFG=Debug       Build all aspects (Debug, with -g)
+#   make -f Makefile.aix helloWorld      Build MCPServer_helloWorld only
+#   make -f Makefile.aix clean           Remove build artifacts for current CFG
+#   make -f Makefile.aix cleanall        Remove entire build directory
+# ============================================================================
+
+# --- Configuration (Release or Debug) ---
+CFG = Release
+
+# --- Source / Include Directories (relative from mcp/) ---
+COMMONC_DIR = ../base/CommonC
+JSONPARSER_DIR = ../parsers/JSONParser
+PARSER_DIR = ../base/Parser
+MCPBASE_DIR = base
+MCPSRV_DIR = servers
+
+# --- Build Output ---
+OUTDIR = build/$(CFG)
+O = $(OUTDIR)/obj
+
+# --- Tools ---
+# IBM XL C/C++ driver. Use xlclang++ instead for the Clang-based front end.
+CXX = xlC
+
+# --- 64-bit object mode (all compiles + link) ---
+BITMODE = -q64
+
+# --- Compiler Flags ---
+# -qthreaded : thread-safe / reentrant runtime (replaces GNU -pthread)
+# -qrtti     : enable RTTI
+CXXFLAGS_BASE = $(BITMODE) -qthreaded -qrtti \
+                -D"UNIX" -D"_AIX" -D"_CONSOLE" -D"_MBCS" -D"_USE_EXPRESSION_S"
+
+# Config-specific flags are injected by the recursive sub-make (see 'all').
+CXXFLAGS_CFG = -O2 -DNDEBUG
+
+CXXFLAGS = $(CXXFLAGS_BASE) $(CXXFLAGS_CFG)
+
+# --- Include sets (mirror the per-directory visibility of the GNU Makefile) ---
+INC_COMMONC = -I"$(COMMONC_DIR)"
+INC_PARSER  = -I"$(COMMONC_DIR)" -I"$(PARSER_DIR)"
+INC_CORE    = -I"$(COMMONC_DIR)" -I"$(JSONPARSER_DIR)" -I"$(PARSER_DIR)" -I"$(MCPBASE_DIR)"
+
+# --- Linker Flags ---
+# -lpthread : POSIX threads (AIX). dlopen/dlsym live in libc, so no -ldl.
+LIBS = -lpthread
+
+# -brtl    : runtime linking (analog of Linux dynamic symbol resolution)
+# -bexpall : export all symbols so SnapStack backtrace/name resolution and
+#            any dlsym lookups work at runtime (closest to GNU -rdynamic)
+LDFLAGS = $(BITMODE) -brtl -bexpall
+
+# ============================================================================
+# Object File Lists
+# ============================================================================
+
+CORE_OBJS = \
+    $(O)/MCPServer.o \
+    $(O)/MCPServerJSON.o
+
+COMMONC_OBJS = \
+    $(O)/ASThread.o \
+    $(O)/AutoString.o \
+    $(O)/cURLRunner.o \
+    $(O)/ebcdic.o \
+    $(O)/LevelTrace.o \
+    $(O)/LinkList.o \
+    $(O)/MEMprintf.o \
+    $(O)/popenNT.o \
+    $(O)/SnapStack.o
+
+COMMONC_TIMER_OBJS = \
+    $(O)/TimerThread.o
+
+COMMONC_NET_OBJS = \
+    $(O)/IPv6Parse.o \
+    $(O)/SocketCB.o
+
+JSONPARSER_OBJS = \
+    $(O)/_JSONParser.o \
+    $(O)/JSONObject.o \
+    $(O)/JSONParser.o \
+    $(O)/JSONParserDetect.o \
+    $(O)/JSONParserExp.o \
+    $(O)/JSONParserLex.o
+
+PARSER_OBJS = \
+    $(O)/Expression.o \
+    $(O)/ExpressionSN.o \
+    $(O)/FindNode.o \
+    $(O)/LexicalParser.o \
+    $(O)/PrintExpression.o
+
+SHARED_OBJS = $(CORE_OBJS) $(COMMONC_OBJS) $(JSONPARSER_OBJS) $(PARSER_OBJS)
+
+# ============================================================================
+# Targets
+# ============================================================================
+
+ASPECTS = \
+    $(OUTDIR)/MCPServer_helloWorld \
+    $(OUTDIR)/MCPServer_portScan \
+    $(OUTDIR)/MCPServer_setReminder \
+    $(OUTDIR)/MCPServer_wordArt
+
+# Top-level dispatch: recurse with config-appropriate flags. This emulates the
+# GNU ifeq switch on native AIX make.
+all: $(CFG)
+
+Release:
+	$(MAKE) -f Makefile.aix _buildall CFG=Release CXXFLAGS_CFG="-O2 -DNDEBUG"
+
+Debug:
+	$(MAKE) -f Makefile.aix _buildall CFG=Debug CXXFLAGS_CFG="-g -qnoopt -D_DEBUG"
+
+_buildall: _makedirs $(ASPECTS)
+
+# Per-aspect convenience targets (also recurse so CFG flags are applied).
+helloWorld:
+	$(MAKE) -f Makefile.aix _makedirs $(OUTDIR)/MCPServer_helloWorld CFG=$(CFG) CXXFLAGS_CFG="$(CXXFLAGS_CFG)"
+portScan:
+	$(MAKE) -f Makefile.aix _makedirs $(OUTDIR)/MCPServer_portScan CFG=$(CFG) CXXFLAGS_CFG="$(CXXFLAGS_CFG)"
+setReminder:
+	$(MAKE) -f Makefile.aix _makedirs $(OUTDIR)/MCPServer_setReminder CFG=$(CFG) CXXFLAGS_CFG="$(CXXFLAGS_CFG)"
+wordArt:
+	$(MAKE) -f Makefile.aix _makedirs $(OUTDIR)/MCPServer_wordArt CFG=$(CFG) CXXFLAGS_CFG="$(CXXFLAGS_CFG)"
+
+_makedirs:
+	@mkdir -p $(O)
+
+clean:
+	@rm -rf $(OUTDIR)
+
+cleanall:
+	@rm -rf build
+
+# ============================================================================
+# Link Rules
+# ============================================================================
+
+$(OUTDIR)/MCPServer_helloWorld: $(SHARED_OBJS) $(O)/MCPServer_helloWorld.o
+	$(CXX) $(LDFLAGS) $(SHARED_OBJS) $(O)/MCPServer_helloWorld.o -o $@ $(LIBS)
+
+$(OUTDIR)/MCPServer_portScan: $(SHARED_OBJS) $(COMMONC_NET_OBJS) $(O)/MCPServer_portScan.o
+	$(CXX) $(LDFLAGS) $(SHARED_OBJS) $(COMMONC_NET_OBJS) $(O)/MCPServer_portScan.o -o $@ $(LIBS)
+
+$(OUTDIR)/MCPServer_setReminder: $(SHARED_OBJS) $(COMMONC_TIMER_OBJS) $(O)/MCPServer_setReminder.o
+	$(CXX) $(LDFLAGS) $(SHARED_OBJS) $(COMMONC_TIMER_OBJS) $(O)/MCPServer_setReminder.o -o $@ $(LIBS)
+
+$(OUTDIR)/MCPServer_wordArt: $(SHARED_OBJS) $(O)/MCPServer_wordArt.o
+	$(CXX) $(LDFLAGS) $(SHARED_OBJS) $(O)/MCPServer_wordArt.o -o $@ $(LIBS)
+
+# ============================================================================
+# Compile Rules - explicit per-object recipes (native AIX make)
+# Each recipe names its source with the full relative path and uses the same
+# per-directory include visibility as the GNU Makefile.
+# ============================================================================
+
+# --- MCP base (MCPServer.cpp, MCPServerJSON.cpp) ---
+$(O)/MCPServer.o: $(MCPBASE_DIR)/MCPServer.cpp
+	$(CXX) $(CXXFLAGS) $(INC_CORE) -c $(MCPBASE_DIR)/MCPServer.cpp -o $@
+$(O)/MCPServerJSON.o: $(MCPBASE_DIR)/MCPServerJSON.cpp
+	$(CXX) $(CXXFLAGS) $(INC_CORE) -c $(MCPBASE_DIR)/MCPServerJSON.cpp -o $@
+
+# --- CommonC (-I CommonC only, matching GNU Makefile) ---
+$(O)/ASThread.o: $(COMMONC_DIR)/ASThread.cpp
+	$(CXX) $(CXXFLAGS) $(INC_COMMONC) -c $(COMMONC_DIR)/ASThread.cpp -o $@
+$(O)/AutoString.o: $(COMMONC_DIR)/AutoString.cpp
+	$(CXX) $(CXXFLAGS) $(INC_COMMONC) -c $(COMMONC_DIR)/AutoString.cpp -o $@
+$(O)/cURLRunner.o: $(COMMONC_DIR)/cURLRunner.cpp
+	$(CXX) $(CXXFLAGS) $(INC_COMMONC) -c $(COMMONC_DIR)/cURLRunner.cpp -o $@
+$(O)/ebcdic.o: $(COMMONC_DIR)/ebcdic.cpp
+	$(CXX) $(CXXFLAGS) $(INC_COMMONC) -c $(COMMONC_DIR)/ebcdic.cpp -o $@
+$(O)/LevelTrace.o: $(COMMONC_DIR)/LevelTrace.cpp
+	$(CXX) $(CXXFLAGS) $(INC_COMMONC) -c $(COMMONC_DIR)/LevelTrace.cpp -o $@
+$(O)/LinkList.o: $(COMMONC_DIR)/LinkList.cpp
+	$(CXX) $(CXXFLAGS) $(INC_COMMONC) -c $(COMMONC_DIR)/LinkList.cpp -o $@
+$(O)/MEMprintf.o: $(COMMONC_DIR)/MEMprintf.cpp
+	$(CXX) $(CXXFLAGS) $(INC_COMMONC) -c $(COMMONC_DIR)/MEMprintf.cpp -o $@
+$(O)/popenNT.o: $(COMMONC_DIR)/popenNT.cpp
+	$(CXX) $(CXXFLAGS) $(INC_COMMONC) -c $(COMMONC_DIR)/popenNT.cpp -o $@
+$(O)/SnapStack.o: $(COMMONC_DIR)/SnapStack.cpp
+	$(CXX) $(CXXFLAGS) $(INC_COMMONC) -c $(COMMONC_DIR)/SnapStack.cpp -o $@
+$(O)/TimerThread.o: $(COMMONC_DIR)/TimerThread.cpp
+	$(CXX) $(CXXFLAGS) $(INC_COMMONC) -c $(COMMONC_DIR)/TimerThread.cpp -o $@
+$(O)/IPv6Parse.o: $(COMMONC_DIR)/IPv6Parse.cpp
+	$(CXX) $(CXXFLAGS) $(INC_COMMONC) -c $(COMMONC_DIR)/IPv6Parse.cpp -o $@
+$(O)/SocketCB.o: $(COMMONC_DIR)/SocketCB.cpp
+	$(CXX) $(CXXFLAGS) $(INC_COMMONC) -c $(COMMONC_DIR)/SocketCB.cpp -o $@
+
+# --- JSONParser (full INC_CORE) ---
+$(O)/_JSONParser.o: $(JSONPARSER_DIR)/_JSONParser.cpp
+	$(CXX) $(CXXFLAGS) $(INC_CORE) -c $(JSONPARSER_DIR)/_JSONParser.cpp -o $@
+$(O)/JSONObject.o: $(JSONPARSER_DIR)/JSONObject.cpp
+	$(CXX) $(CXXFLAGS) $(INC_CORE) -c $(JSONPARSER_DIR)/JSONObject.cpp -o $@
+$(O)/JSONParser.o: $(JSONPARSER_DIR)/JSONParser.cpp
+	$(CXX) $(CXXFLAGS) $(INC_CORE) -c $(JSONPARSER_DIR)/JSONParser.cpp -o $@
+$(O)/JSONParserDetect.o: $(JSONPARSER_DIR)/JSONParserDetect.cpp
+	$(CXX) $(CXXFLAGS) $(INC_CORE) -c $(JSONPARSER_DIR)/JSONParserDetect.cpp -o $@
+$(O)/JSONParserExp.o: $(JSONPARSER_DIR)/JSONParserExp.cpp
+	$(CXX) $(CXXFLAGS) $(INC_CORE) -c $(JSONPARSER_DIR)/JSONParserExp.cpp -o $@
+$(O)/JSONParserLex.o: $(JSONPARSER_DIR)/JSONParserLex.cpp
+	$(CXX) $(CXXFLAGS) $(INC_CORE) -c $(JSONPARSER_DIR)/JSONParserLex.cpp -o $@
+
+# --- Parser (-I CommonC -I Parser, matching GNU Makefile) ---
+$(O)/Expression.o: $(PARSER_DIR)/Expression.cpp
+	$(CXX) $(CXXFLAGS) $(INC_PARSER) -c $(PARSER_DIR)/Expression.cpp -o $@
+$(O)/ExpressionSN.o: $(PARSER_DIR)/ExpressionSN.cpp
+	$(CXX) $(CXXFLAGS) $(INC_PARSER) -c $(PARSER_DIR)/ExpressionSN.cpp -o $@
+$(O)/FindNode.o: $(PARSER_DIR)/FindNode.cpp
+	$(CXX) $(CXXFLAGS) $(INC_PARSER) -c $(PARSER_DIR)/FindNode.cpp -o $@
+$(O)/LexicalParser.o: $(PARSER_DIR)/LexicalParser.cpp
+	$(CXX) $(CXXFLAGS) $(INC_PARSER) -c $(PARSER_DIR)/LexicalParser.cpp -o $@
+$(O)/PrintExpression.o: $(PARSER_DIR)/PrintExpression.cpp
+	$(CXX) $(CXXFLAGS) $(INC_PARSER) -c $(PARSER_DIR)/PrintExpression.cpp -o $@
+
+# --- MCP server aspects (full INC_CORE) ---
+$(O)/MCPServer_helloWorld.o: $(MCPSRV_DIR)/helloWorld/MCPServer_helloWorld.cpp
+	$(CXX) $(CXXFLAGS) $(INC_CORE) -c $(MCPSRV_DIR)/helloWorld/MCPServer_helloWorld.cpp -o $@
+$(O)/MCPServer_portScan.o: $(MCPSRV_DIR)/portScan/MCPServer_portScan.cpp
+	$(CXX) $(CXXFLAGS) $(INC_CORE) -c $(MCPSRV_DIR)/portScan/MCPServer_portScan.cpp -o $@
+$(O)/MCPServer_setReminder.o: $(MCPSRV_DIR)/setReminder/MCPServer_setReminder.cpp
+	$(CXX) $(CXXFLAGS) $(INC_CORE) -c $(MCPSRV_DIR)/setReminder/MCPServer_setReminder.cpp -o $@
+$(O)/MCPServer_wordArt.o: $(MCPSRV_DIR)/wordArt/MCPServer_wordArt.cpp
+	$(CXX) $(CXXFLAGS) $(INC_CORE) -c $(MCPSRV_DIR)/wordArt/MCPServer_wordArt.cpp -o $@

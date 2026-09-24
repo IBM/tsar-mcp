@@ -10,6 +10,8 @@ While other C++ MCP SDKs focus on web-centric transports (HTTP, WebSockets, TCP)
 
 That design makes it a practical fit for edge systems, legacy enterprise environments, air-gapped hosts, and any deployment where runtime bloat or exposed network ports are a liability.
 
+Because the framework targets standard OS primitives rather than a heavy runtime, it builds and runs across a wide platform range — from modern Linux and Windows to enterprise IBM systems. The full MCP server suite has been built with **IBM XL C/C++ (xlC)** and verified running natively on **AIX** and **IBM i (PASE)**, served to AI clients over nothing more than `ssh`.
+
 ## Getting Started
 
 ### 💡 The "Aha!" Moment: Giving AI Hands
@@ -23,7 +25,7 @@ Because the framework already handles the protocol engine, building a new MCP to
 
 **Build your own custom MCP Server in 4 steps:**
 
-1. **Get a compiler:** Use `g++` (available natively on Linux) or Visual Studio Community Edition (free on Windows).
+1. **Get a compiler:** Use `g++` (available natively on Linux) or Visual Studio Community Edition (free on Windows). On AIX / IBM i (PASE), use IBM XL C/C++ (`xlC`).
 2. **Get Git:** Download from [git-scm.com](https://git-scm.com) or use your package manager (e.g., `sudo apt install git`).
 3. **Clone the repository:** Pull the TSAR-MCP SDK to your local machine.
    ```bash
@@ -73,6 +75,16 @@ nmake -f Makefile.nmake helloWorld      # Builds only the helloWorld aspect
 nmake -f Makefile.nmake cleanall        # Removes the entire build directory
 ```
 
+**AIX / IBM i (native `make` + IBM XL C/C++, 64-bit)**
+
+```bash
+cd mcp
+make -f Makefile.aix                    # Builds all aspects (Release mode)
+make -f Makefile.aix CFG=Debug          # Builds all aspects (Debug mode)
+make -f Makefile.aix helloWorld         # Builds only the helloWorld aspect
+make -f Makefile.aix cleanall           # Removes the entire build directory
+```
+
 ## Core Architecture
 
 TSAR-MCP is built around a simple native execution path: an MCP client sends JSON-RPC over `stdio`, the framework parses and validates it natively, dispatches the request into your aspect, and returns a well-formed response back to the client. There is no Python interpreter, no Node.js runtime, and no external protocol layer sitting between your tool logic and the operating system.
@@ -110,6 +122,7 @@ This repository is structured as a chronological masterclass in building zero-de
 4. **Tag:** `mcp/enterprise_io/v2.1.0` - Isolated I/O stream and JSON protocol safety.
 5. **Tag:** `mcp/agentic_prompts/v2.2.0` - Prompts as agentic services via `listPrompts` and `getPrompt` tools.
 6. **Tag:** `mcp/stateless_rc/v2.3.0` - Introduces 2026-07-28 stateless protocol RC alongside process control (`popenNT`), generic REST utilities (`cURLRunner`), and custom lifecycle hooks (`NO_MAIN_MCP`).
+7. **Tag:** `mcp/aix_ibmi_port/v2.4.0` - Enterprise Platform Port: Adds native 64-bit IBM XL C/C++ (`xlC`) support for AIX and IBM i (PASE).
 
 Please see **[ARCHITECTURE_MILESTONES.md](./ARCHITECTURE_MILESTONES.md)** for detailed instructions on how to check out these historical baselines.
 

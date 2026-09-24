@@ -17,8 +17,8 @@
 //             stderr are directed to stdout.
 //
 //          2. When 'in' is requested, the caller MUST fclose(in) before
-//             calling pcloseNT(). When 'in' is not requested, pcloseNT()
-//             sends EOF to the child automatically.
+//             calling pcloseNT(). When 'in' is not requested, EOF is 
+//             sent to the child immediately.
 //
 //          3. Call pcloseNT()/pabortNT() with 'out' or 'err' but not 'in'.
 //

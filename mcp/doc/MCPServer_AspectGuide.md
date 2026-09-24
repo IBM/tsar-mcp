@@ -294,6 +294,26 @@ $(OUTDIR)\MCPServer_myAspect.exe: $(SHARED_OBJS) $(O)\MCPServer_myAspect.obj
 ```
 Build: `nmake myAspect` (or `nmake myAspect CFG=Debug`)
 
+**AIX make (`Makefile.aix`) — AIX / IBM i, IBM XL C/C++:**
+
+Native AIX `make` has no pattern rules and leaves `$<`/`$^` empty, so name sources and objects in full.
+```makefile
+# Named target:
+myAspect:
+	$(MAKE) -f Makefile.aix _makedirs $(OUTDIR)/MCPServer_myAspect CFG=$(CFG) CXXFLAGS_CFG="$(CXXFLAGS_CFG)"
+
+# Link rule:
+$(OUTDIR)/MCPServer_myAspect: $(SHARED_OBJS) $(O)/MCPServer_myAspect.o
+	$(CXX) $(LDFLAGS) $(SHARED_OBJS) $(O)/MCPServer_myAspect.o -o $@ $(LIBS)
+
+# Compile rule:
+$(O)/MCPServer_myAspect.o: $(MCPSRV_DIR)/myAspect/MCPServer_myAspect.cpp
+	$(CXX) $(CXXFLAGS) $(INC_CORE) -c $(MCPSRV_DIR)/myAspect/MCPServer_myAspect.cpp -o $@
+```
+Build: `make -f Makefile.aix myAspect` (or `make -f Makefile.aix myAspect CFG=Debug`)
+
+> Also add `$(OUTDIR)/MCPServer_myAspect` to `ASPECTS`. `Makefile.aix` must have `LF` line endings.
+
 ## LLM Registration
 
 **VSCode `mcp.json`:**

@@ -1,0 +1,164 @@
+# ============================================================================
+# cURLExample Makefile (AIX make + IBM XL C/C++, 64-bit)
+#
+# TSAR (Tools Slightly Above the Runtime)
+# Copyright (c) 2026 International Business Machines Corporation
+# Copyright (c) 2026 Eric Kass
+# SPDX-License-Identifier: MIT
+#
+# Usage:
+#   make -f Makefile.aix                  (Release, 64-bit)
+#   make -f Makefile.aix CFG=Debug CXXFLAGS_CFG="-g -qnoopt -D_DEBUG"
+#   make -f Makefile.aix clean
+#
+# Notes:
+#   - Written for the native AIX make utility (/usr/bin/make), NOT GNU make.
+#     Uses suffix rules + VPATH instead of GNU pattern rules, and avoids
+#     GNU-only conditionals (ifeq/filter/error).
+#   - Requires IBM XL C/C++ (xlC). Builds 64-bit objects (-q64).
+# ============================================================================
+
+CFG = Release
+
+COMMONC_DIR = ../../base/CommonC
+JSONPARSER_DIR = ../../parsers/JSONParser
+PARSER_DIR = ../../base/Parser
+AICURL_DIR = ../../base/AIcURL
+OUTDIR = build/$(CFG)
+O = $(OUTDIR)/obj
+
+# IBM XL C/C++ driver. Use xlclang++ instead if targeting the Clang-based
+# front end.
+CXX = xlC
+
+# 64-bit object mode for all compiles and the final link.
+BITMODE = -q64
+
+# -qthreaded : thread-safe code generation / reentrant runtime
+# -qrtti     : enable RTTI (C++ new/delete + dynamic_cast safety)
+CXXFLAGS_BASE = $(BITMODE) -qthreaded -qrtti \
+                -D"UNIX" -D"_AIX" -D"_CONSOLE" -D"_MBCS" -D"_USE_EXPRESSION_S"
+
+# ---- Config-specific flags -------------------------------------------------
+# CFG selects Release (default) or Debug. Because native AIX make has no ifeq,
+# the top-level 'all' target recurses with the correct CXXFLAGS_CFG for the
+# chosen CFG. Both of these work and match the Windows/Linux docs:
+#   make -f Makefile.aix                (Release)
+#   make -f Makefile.aix CFG=Debug      (Debug, with -g)
+CXXFLAGS_CFG = -O2 -DNDEBUG
+
+INC_CORE = -I"$(COMMONC_DIR)" -I"$(JSONPARSER_DIR)" -I"$(PARSER_DIR)" -I"$(AICURL_DIR)"
+CXXFLAGS = $(CXXFLAGS_BASE) $(CXXFLAGS_CFG) $(INC_CORE)
+
+# -lpthread : POSIX threads (AIX)
+# dlopen/dlsym live in libc on AIX, so no -ldl is required.
+LIBS = -lpthread
+
+# -brtl    : runtime linking (analogous to Linux dynamic symbol resolution)
+# -bexpall : export all symbols so LoadLib/dlsym can resolve them at runtime
+#            (closest equivalent to GNU -rdynamic)
+LDFLAGS = $(BITMODE) -brtl -bexpall
+
+COMMONC_OBJS = \
+    $(O)/ASThread.o \
+    $(O)/AutoString.o \
+    $(O)/cURLRunner.o \
+    $(O)/ebcdic.o \
+    $(O)/LevelTrace.o \
+    $(O)/LinkList.o \
+    $(O)/MEMprintf.o \
+    $(O)/popenNT.o \
+    $(O)/SnapStack.o
+
+JSONPARSER_OBJS = \
+    $(O)/_JSONParser.o \
+    $(O)/JSONObject.o \
+    $(O)/JSONParser.o \
+    $(O)/JSONParserDetect.o \
+    $(O)/JSONParserExp.o \
+    $(O)/JSONParserLex.o
+
+PARSER_OBJS = \
+    $(O)/Expression.o \
+    $(O)/ExpressionSN.o \
+    $(O)/FindNode.o \
+    $(O)/LexicalParser.o \
+    $(O)/PrintExpression.o
+
+AICURL_OBJS = \
+    $(O)/AIcURLJSON.o
+
+OBJS = $(COMMONC_OBJS) $(JSONPARSER_OBJS) $(PARSER_OBJS) $(AICURL_OBJS) $(O)/cURLExample.o
+
+all: $(CFG)
+
+# Recurse with config-appropriate flags. This is how we emulate GNU ifeq on
+# the native AIX make: 'all' depends on the CFG name, and each config target
+# re-invokes make with the right CXXFLAGS_CFG for that build.
+Release:
+	$(MAKE) -f Makefile.aix _build CFG=Release CXXFLAGS_CFG="-O2 -DNDEBUG"
+
+Debug:
+	$(MAKE) -f Makefile.aix _build CFG=Debug CXXFLAGS_CFG="-g -qnoopt -D_DEBUG"
+
+_build: _makedirs $(OUTDIR)/cURLExample
+
+_makedirs:
+	@mkdir -p $(O)
+
+clean:
+	@rm -rf $(OUTDIR)
+
+cleanall:
+	@rm -rf build
+
+$(OUTDIR)/cURLExample: $(OBJS)
+	$(CXX) $(LDFLAGS) $(OBJS) -o $@ $(LIBS)
+
+# Explicit compile commands per object. On the native AIX make, $< is only
+# defined inside suffix rules (empty in explicit rules) and VPATH substitution
+# is unreliable, so each recipe names its source with the full relative path.
+$(O)/ASThread.o: $(COMMONC_DIR)/ASThread.cpp
+	$(CXX) $(CXXFLAGS) -c $(COMMONC_DIR)/ASThread.cpp -o $@
+$(O)/AutoString.o: $(COMMONC_DIR)/AutoString.cpp
+	$(CXX) $(CXXFLAGS) -c $(COMMONC_DIR)/AutoString.cpp -o $@
+$(O)/cURLRunner.o: $(COMMONC_DIR)/cURLRunner.cpp
+	$(CXX) $(CXXFLAGS) -c $(COMMONC_DIR)/cURLRunner.cpp -o $@
+$(O)/ebcdic.o: $(COMMONC_DIR)/ebcdic.cpp
+	$(CXX) $(CXXFLAGS) -c $(COMMONC_DIR)/ebcdic.cpp -o $@
+$(O)/LevelTrace.o: $(COMMONC_DIR)/LevelTrace.cpp
+	$(CXX) $(CXXFLAGS) -c $(COMMONC_DIR)/LevelTrace.cpp -o $@
+$(O)/LinkList.o: $(COMMONC_DIR)/LinkList.cpp
+	$(CXX) $(CXXFLAGS) -c $(COMMONC_DIR)/LinkList.cpp -o $@
+$(O)/MEMprintf.o: $(COMMONC_DIR)/MEMprintf.cpp
+	$(CXX) $(CXXFLAGS) -c $(COMMONC_DIR)/MEMprintf.cpp -o $@
+$(O)/popenNT.o: $(COMMONC_DIR)/popenNT.cpp
+	$(CXX) $(CXXFLAGS) -c $(COMMONC_DIR)/popenNT.cpp -o $@
+$(O)/SnapStack.o: $(COMMONC_DIR)/SnapStack.cpp
+	$(CXX) $(CXXFLAGS) -c $(COMMONC_DIR)/SnapStack.cpp -o $@
+$(O)/_JSONParser.o: $(JSONPARSER_DIR)/_JSONParser.cpp
+	$(CXX) $(CXXFLAGS) -c $(JSONPARSER_DIR)/_JSONParser.cpp -o $@
+$(O)/JSONObject.o: $(JSONPARSER_DIR)/JSONObject.cpp
+	$(CXX) $(CXXFLAGS) -c $(JSONPARSER_DIR)/JSONObject.cpp -o $@
+$(O)/JSONParser.o: $(JSONPARSER_DIR)/JSONParser.cpp
+	$(CXX) $(CXXFLAGS) -c $(JSONPARSER_DIR)/JSONParser.cpp -o $@
+$(O)/JSONParserDetect.o: $(JSONPARSER_DIR)/JSONParserDetect.cpp
+	$(CXX) $(CXXFLAGS) -c $(JSONPARSER_DIR)/JSONParserDetect.cpp -o $@
+$(O)/JSONParserExp.o: $(JSONPARSER_DIR)/JSONParserExp.cpp
+	$(CXX) $(CXXFLAGS) -c $(JSONPARSER_DIR)/JSONParserExp.cpp -o $@
+$(O)/JSONParserLex.o: $(JSONPARSER_DIR)/JSONParserLex.cpp
+	$(CXX) $(CXXFLAGS) -c $(JSONPARSER_DIR)/JSONParserLex.cpp -o $@
+$(O)/Expression.o: $(PARSER_DIR)/Expression.cpp
+	$(CXX) $(CXXFLAGS) -c $(PARSER_DIR)/Expression.cpp -o $@
+$(O)/ExpressionSN.o: $(PARSER_DIR)/ExpressionSN.cpp
+	$(CXX) $(CXXFLAGS) -c $(PARSER_DIR)/ExpressionSN.cpp -o $@
+$(O)/FindNode.o: $(PARSER_DIR)/FindNode.cpp
+	$(CXX) $(CXXFLAGS) -c $(PARSER_DIR)/FindNode.cpp -o $@
+$(O)/LexicalParser.o: $(PARSER_DIR)/LexicalParser.cpp
+	$(CXX) $(CXXFLAGS) -c $(PARSER_DIR)/LexicalParser.cpp -o $@
+$(O)/PrintExpression.o: $(PARSER_DIR)/PrintExpression.cpp
+	$(CXX) $(CXXFLAGS) -c $(PARSER_DIR)/PrintExpression.cpp -o $@
+$(O)/AIcURLJSON.o: $(AICURL_DIR)/AIcURLJSON.cpp
+	$(CXX) $(CXXFLAGS) -c $(AICURL_DIR)/AIcURLJSON.cpp -o $@
+$(O)/cURLExample.o: cURLExample.cpp
+	$(CXX) $(CXXFLAGS) -c cURLExample.cpp -o $@

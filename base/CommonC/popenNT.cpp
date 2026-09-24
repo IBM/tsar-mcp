@@ -346,7 +346,6 @@ struct popenFILESet : public Link
         {
         FILE *ReadStream;
         FILE *ErrorStream;
-        HANDLE WriteHandle;
         HANDLE hThread;
         HANDLE hProcess;
         char *ProcessName;
@@ -633,10 +632,12 @@ bool popenNTioe(const char *Command,
                         TERROR(("%s: fdopen [in] Failed",ProcName));
                         goto pNT_Error; 
                         }
-                FILESet->WriteHandle = NULL;
                 }
         else    {
-                FILESet->WriteHandle = WritePipe;
+                // ------------------------------------------------------
+                // Send EOF if the caller didn't request an input stream.
+                // ------------------------------------------------------
+                if (WritePipe) CloseHandle(WritePipe);
                 }
         if (ReadPipe)
                 {
@@ -729,10 +730,6 @@ int pcloseNT(FILE *stream)
                 TERROR(("%s: GetFILESet Failed",ProcName));
                 return 0;
                 }
-        // ***************************************
-        // **** Close Write Pipe (Signal EOF) ****
-        // ***************************************
-        if (FILESet->WriteHandle) CloseHandle(FILESet->WriteHandle);
 	// ********************************
         // **** Wait for Child Process ****
         // ********************************
@@ -826,6 +823,40 @@ void pabortALL()
 #else /*!_WIN32 - UNIX */
 
 // *****************************
+// **** pipe2 shim for AIX ****
+// *****************************
+
+#ifdef _AIX
+
+#ifndef O_CLOEXEC
+        #define O_CLOEXEC 02000000 
+#endif
+
+static Mutex pipe2Mutex;
+
+static inline int pipe2(int pipefd[2], int flags)
+        {
+        pipe2Mutex.Take();
+        int rc = pipe(pipefd);
+        if (rc != 0)
+                {
+                pipe2Mutex.Release();
+                return rc;
+                }
+        if (flags & O_CLOEXEC)
+                {
+                int f0 = fcntl(pipefd[0], F_GETFD);
+                fcntl(pipefd[0], F_SETFD, f0 | FD_CLOEXEC);
+                int f1 = fcntl(pipefd[1], F_GETFD);
+                fcntl(pipefd[1], F_SETFD, f1 | FD_CLOEXEC);
+                }
+        pipe2Mutex.Release();
+        return 0;
+        }
+
+#endif
+
+// *****************************
 // **** popenNTioe (argv[]) ****
 // *****************************
 
@@ -895,7 +926,13 @@ bool popenNTioe(int argc, const char *argv[],
         // ************************
         // **** Create Process ****
         // ************************
+  #ifdef _AIX
+        pipe2Mutex.Take();
+  #endif
         pid = fork();
+  #ifdef _AIX
+        pipe2Mutex.Release();
+  #endif
         if (pid == 0)                           // In Child:
                 {
                 if (StdinHandle >= 0)
@@ -995,10 +1032,12 @@ bool popenNTioe(int argc, const char *argv[],
                         TERROR(("%s: fdopen [in] Failed",ProcName));
                         goto pNT_Error; 
                         }
-                FILESet->WriteHandle = -1;
                 }
         else    {
-                FILESet->WriteHandle = WritePipe;
+                // ------------------------------------------------------
+                // Send EOF if the caller didn't request an input stream.
+                // ------------------------------------------------------
+                if (WritePipe >= 0) close(WritePipe);
                 }
         if (ReadPipe >= 0)
                 {
@@ -1063,10 +1102,6 @@ int pcloseNT(FILE *stream)
                 TERROR(("%s: GetFILESet Failed",ProcName));
                 return 0;
                 }
-        // ***************************************
-        // **** Close Write Pipe (Signal EOF) ****
-        // ***************************************
-        if (FILESet->WriteHandle >= 0) close(FILESet->WriteHandle);
 	// ********************************
         // **** Wait for Child Process ****
         // ********************************

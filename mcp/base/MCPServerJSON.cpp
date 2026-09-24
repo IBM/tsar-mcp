@@ -121,6 +121,20 @@ char* BuildFQFN(const char *Path, const char *Filename)
                         }
                 }
         *Dest = '\0';
+        // ----------------------------------------------
+        // ---- Trim Trailing FILE_SEPERATOR ------------
+        // ---- (keep root "/" and drive root "X:\") ----
+        // ----------------------------------------------
+        char *Dest_1 = Dest > Fullname ? Dest - 1 : NULL;
+        if (Dest_1)
+                {
+                char *Dest_2 = Dest_1 > Fullname ? Dest_1 - 1 : NULL;
+                if (*Dest_1 == FILE_SEPERATOR_WIN || 
+                    *Dest_1 == FILE_SEPERATOR_UNIX)
+                        {
+                        if (Dest_2 && *Dest_2 != ':') *Dest_1 = '\0';
+                        }
+                }
         return Fullname;
         }
 
