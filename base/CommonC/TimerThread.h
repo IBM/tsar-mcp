@@ -25,11 +25,24 @@
         typedef unsigned long long Ltime_t;
 #endif
 
-struct TimerItem : public Link
+enum TimerMsgKind
+        {
+        TimerMsgKind_Item = 0,
+        TimerMsgKind_Kill
+        };
+
+struct TimerMessage : public Link
+        {
+        TimerMsgKind Kind;
+        TimerMessage(TimerMsgKind inKind) {Kind = inKind;}
+        };
+
+struct TimerItem : public TimerMessage
         {
         unsigned EventTimeMS;
         MessageQueueIF *Queue;
         void *MessageToPost;
+        TimerItem() : TimerMessage(TimerMsgKind_Item) {}
         };
 
 DefineLinkList(TimerItemList,TimerItem);
@@ -40,7 +53,9 @@ class TimerThread : public ASThread
                 Ltime_t StartupTimeMS;
                 TimerItemList TimerList;
                 MessageQueue TimerQueue;
+                void AbsorbTimerQueue();
                 void AddTimerItem(TimerItem *Item);
+                void KillQueueTimers(MessageQueueIF *Queue);
                 virtual int ThreadMain();
         protected:
                 void Clear();
@@ -49,6 +64,7 @@ class TimerThread : public ASThread
         public:
                 TimerThread();
                 virtual ~TimerThread();
+                bool KillTimers(MessageQueueIF &Queue);
                 bool SetTimer(MessageQueueIF &Queue, 
                               void *MessageToPost,
                               unsigned TimeoutMS);
@@ -75,6 +91,22 @@ class TimerThread : public ASThread
                         At 'TimeoutMS', the message 'MessageToPost' is sent 
                         to the 'Queue.' "MessageToPost' may be NULL if the
                         application can handle NULL on its Queue.
+
+              - KillTimers(MessageQueueIF &Queue)
+
+                        Drops every timer set against 'Queue', calling
+                        OnMessageDestruct() for each. Blocks until the
+                        TimerThread confirms the sweep, so on return no
+                        Send() to 'Queue' can be in flight -- 'Queue' may
+                        then be destroyed.
+
+                   ==>  Call it from the MOST DERIVED destructor of the
+                        object owning 'Queue'. By the time a base
+                        destructor runs, the derived part is already gone.
+
+                   ==>  Safe whether or not the TimerThread is running.
+                        Stopped, there is no consumer to race with, so
+                        the sweep is performed in the calling thread.
 
               - Stop(flag WaitToEnd)
 

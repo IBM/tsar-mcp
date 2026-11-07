@@ -25,6 +25,8 @@
 
         #define __MCPServer_JSON
 
+#include <time.h>
+
 #include <JSONObject.h>
 
 // ******************************
@@ -46,14 +48,14 @@ class MCPInputRequest
         {
         private:
                 JSON_Object *JSONRequest;
-                friend MCPInputRequest* ParseJSON_MSCPInput(const char*);
         protected:
                 JSON_Member* FindMember(const char *Key);
                 JSON_Value* FindMemberValue(const char *Key);
         public:
-                MCPInputRequest() {JSONRequest = NULL;}
+                MCPInputRequest(JSON_Object **Request);
                 MCPInputRequest(MCPInputRequest &Source);
                 ~MCPInputRequest() {Clear();}
+                JSON_Object* _getJSONRequest() {return JSONRequest;}
                 void Clear();
                 const char* Get_jsonrpc();
                 JSON_Value* Get_id();
@@ -73,6 +75,8 @@ class MCPInputRequest
                 // ------------------------------------------
                 int Version();          // Raw per-request report (no policy).
         };
+
+typedef MCPInputRequest RPCInputRequest;
 
 // ***************************************
 // **** JSON Parser Init/Deinit **********
@@ -103,15 +107,17 @@ void DeleteJSON_mt(Node *JSONExpression);
 
 JSON_Object* BuildJSONObject(const char *JSONBuffer);
 
-// *****************************
-// **** ParseJSON_MSCPInput ****
-// *****************************
+// ****************************
+// **** ParseJSON_MCPInput ****
+// ****************************
 
-MCPInputRequest* ParseJSON_MSCPInput(const char *JSONBuffer);
+MCPInputRequest* ParseJSON_MCPInput(const char *JSONBuffer);
 
 bool ValidateJSON(const char *JSONBuffer);      // Parses and Discards.
 
 bool TraceJSON(const char *JSONBuffer, bool Pretty=true);
+
+void TraceJSON(MCPInputRequest &MCPRequest, bool Pretty=true);
 
 // *******************************************************************
 // **** ExtractSampleText ********************************************
@@ -142,26 +148,6 @@ int PrintJSONValue(MemoryPrintf &Canvas,        // Returns bytes output.
                    bool asJSON,
                    bool Pretty);
 
-// ********************************************************
-// **** BuildFQFN (Construct a Fully Qualified Path) ******
-// ********************************************************
-
-#define FILE_SEPERATOR_WIN '\\'             
-#define FILE_SEPERATOR_UNIX '/'
-#ifdef _WIN32
-        #define FILE_SEPERATOR FILE_SEPERATOR_WIN
-#else
-        #define FILE_SEPERATOR FILE_SEPERATOR_UNIX
-#endif
-
-// ********************************************************
-// **** BuildFQFN (Construct a Fully Qualified Path) ******
-// ********************************************************
-
-char* BuildFQFN(const char *Path, const char *Filename);
-
-void FreeFQFN(char **Fullname);
-
 // ***************************************************************************
 // **** MCP id Utilites ******************************************************
 // ***************************************************************************
@@ -173,7 +159,7 @@ void FreeFQFN(char **Fullname);
 class _MCPIdString
         {
         private:
-                char idBuffer[64];
+                char idBuffer[128];     // UUID ids with room for a prefix.
         protected:
                 void PrintToBuffer(JSON_Value *id);
         public:
@@ -195,6 +181,50 @@ bool idcmp(JSON_Value &cmpA, JSON_Value &cmpB);
 // -----------------------------------------
 
 const char* FuzzyPeekJSONId(const char *JSON, char *Buf, size_t BufLen);
+
+// ***************************************************************************
+// **** Independent File, Time, String Utilties ******************************
+// ***************************************************************************
+
+// ------------------------------------------------------
+// ---- BuildFQFN (Construct a Fully Qualified Path) ----
+// ------------------------------------------------------
+
+#define FILE_SEPERATOR_WIN '\\'             
+#define FILE_SEPERATOR_UNIX '/'
+#ifdef _WIN32
+        #define FILE_SEPERATOR FILE_SEPERATOR_WIN
+#else
+        #define FILE_SEPERATOR FILE_SEPERATOR_UNIX
+#endif
+
+char* BuildFQFN(const char *Path, const char *Filename);
+
+void FreeFQFN(char **Fullname);
+
+// ----------------------------------
+// ---- Extract delimited tokens ----
+// ----------------------------------
+
+const char* MCP_strtok(const char *Start, 
+                       size_t *Length, 
+                       const char *Delimiters);
+
+const char* MCP_ltrim(const char *Start, size_t *Length);
+
+size_t* MCP_rtrim(const char *Start, size_t *Length);
+
+// ---------------------------------------------------
+// ---- Case insenstive strstr - Completion match ----
+// ---------------------------------------------------
+
+const char* MCP_stristr(const char *String, const char *ToFind);
+
+// -------------------------------------------------
+// ---- MCP_localtime - Thread safe localtime() ----
+// -------------------------------------------------
+
+struct tm* MCP_localtime(struct tm *tmTime, time_t tTime);
 
 /* ***************************************************************************
  Notes:

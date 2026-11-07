@@ -88,95 +88,6 @@ const char** MCPServer_getArgv()
         }
 
 // ***************************************************************************
-// **** Utilties *************************************************************
-// ***************************************************************************
-
-// ----------------------------------
-// ---- Extract delimited tokens ----
-// ----------------------------------
-
-const char* MCP_strtok(const char *Start, 
-                       size_t *Length, 
-                       const char *Delimiters)
-        {
-        if (!Start)
-                {
-                *Length = 0;
-                return NULL;
-                }
-        Start += *Length;
-        while (*Start && strchr(Delimiters,*Start)) Start++;
-        if (!*Start)
-                {
-                *Length = 0;
-                return NULL;
-                }
-        const char *End = Start;
-        while (*End && !strchr(Delimiters,*End)) End++;
-        *Length = (unsigned)(End - Start);
-        return Start;
-        }
-
-const char* MCP_ltrim(const char *Start, size_t *Length)
-        {
-        while (*Length && isspace(*Start))
-                {
-                Start++;
-                *Length = *Length - 1;
-                }
-        return Start;
-        }
-
-size_t* MCP_rtrim(const char *Start, size_t *Length)
-        {
-        while (*Length && isspace(Start[*Length - 1]))
-                {
-                *Length = *Length - 1;
-                }
-        return Length;
-        }        
-
-// ---------------------------------------------------
-// ---- Case insenstive strstr - Completion match ----
-// ---------------------------------------------------
-
-const char* MCP_stristr(const char *String, const char *ToFind)
-        {
-        if (!ToFind || !*ToFind) return String; // Found anything.
-        const char *spos = String;
-        const char *fpos = ToFind;
-        while (*spos && *fpos)
-	        {
-	        String = spos;
-	        while (*spos && *fpos && toupper(*spos) == toupper(*fpos))
-	                {
-	                spos++;
-	                fpos++;
-	                }
-	        if (*fpos)			// No match...
-	                {
-	                spos = String + 1;
-	                fpos = ToFind;
-	                }
-	        }
-    return *fpos == '\0' ? String : NULL;
-    }
-
-// -------------------------------------------------
-// ---- MCP_localtime - Thread safe localtime() ----
-// -------------------------------------------------
-
-struct tm* MCP_localtime(struct tm *tmTime, time_t tTime)
-        {
-        static CriticalSection CS;
-        CS.Take();
-        struct tm *Time = localtime(&tTime);
-        memcpy(tmTime,Time,sizeof(struct tm));
-        CS.Release();
-        return tmTime;
-        }
-
-// ***************************************************************************
 // **** LevelTrace Redirect **************************************************
 // ***************************************************************************
 
@@ -347,7 +258,7 @@ void FreeMCPMessageBuffer(char **Buffer)
 
 char* ReadSTDIN_MCPMessage(FILE *in)    // "getline()" - reads until EOL.
         {
-        const char *ProcName = "ReadSTDIN_MCPMessage";
+        static const char *ProcName = "ReadSTDIN_MCPMessage";
         size_t BufferSize = ReadSTDIN_MCPMessage_BufferSIZE;
         char *Buffer = (char *)malloc(BufferSize);
         if (!Buffer)
@@ -417,7 +328,7 @@ char* ReadSTDIN_MCPMessage(FILE *in)    // "getline()" - reads until EOL.
                 BufferSize = NewBufferSize;
                 } while (1);
         return Buffer;
-        }      
+        }
 
 // ***************************************************************************
 // **** MCP Extensions *******************************************************
@@ -681,7 +592,7 @@ static char* FormMCPResponse_initialize(JSON_Value *idRequest,
                                         JSON_Object *capabilities,
                                         JSON_Object *clientInfo)
         {
-        const char *ProcName = "FormMCPResponse_initialize";
+        static const char *ProcName = "FormMCPResponse_initialize";
         /* ----- OUTPUT ----------------------------------------------
         {
           "jsonrpc": "2.0",
@@ -727,7 +638,7 @@ static char* FormMCPResponse_initialize(JSON_Value *idRequest,
 
 static char* Handle_initialize(MCPInputRequest &MCPRequest)
         {
-        const char *ProcName = "Handle_initialize";
+        static const char *ProcName = "Handle_initialize";
         /* ----- INPUT -----------------------------------------------
         {
           "jsonrpc": "2.0",
@@ -783,7 +694,7 @@ static char* Handle_initialize(MCPInputRequest &MCPRequest)
 
 static void Handle_initialized(MCPInputRequest &MCPRequest)
         {
-        const char *ProcName = "Handle_initialized";
+        static const char *ProcName = "Handle_initialized";
         /* ----- INPUT -----------------------------------------------
         {
           "jsonrpc": "2.0",
@@ -806,7 +717,7 @@ static void Handle_initialized(MCPInputRequest &MCPRequest)
 
 static char* Handle_server_discover(JSON_Value *idRequest)
         {
-        const char *ProcName = "Handle_server_discover";
+        static const char *ProcName = "Handle_server_discover";
         /* ----- OUTPUT ----------------------------------------------
         {
           "jsonrpc": "2.0",
@@ -1032,7 +943,7 @@ char* (*Handle_tools_call_hook)(MCPInputRequest &MCPRequest,
 
 static char* Handle_tools_call_dispatch(MCPInputRequest &MCPRequest)
         {
-        const char *ProcName = "Handle_tools_call_dispatch";
+        static const char *ProcName = "Handle_tools_call_dispatch";
         /* ----- INPUT -----------------------------------------------
         {
           "jsonrpc": "2.0",
@@ -1943,7 +1854,7 @@ MCPToolInfo_t MCPInternToolInfo[] =
 
 static char* FormMCPResponse_readTrace(JSON_Value &idRequest,const char *Trace)
         {
-        const char *ProcName = "FormMCPResponse_readTrace";
+        static const char *ProcName = "FormMCPResponse_readTrace";
         /* ----- OUTPUT ----------------------------------------------
         {
           "jsonrpc": "2.0",
@@ -1982,7 +1893,7 @@ static char* FormMCPResponse_readTrace(JSON_Value &idRequest,const char *Trace)
 
 static char* MCPtool_readTrace(JSON_Value &idRequest, JSON_Object &Arguments)
         {
-        const char *ProcName = "MCPtool_readTrace";
+        static const char *ProcName = "MCPtool_readTrace";
         /* ----- INPUT -----------------------------------------------
         {
           "jsonrpc": "2.0",
@@ -2093,7 +2004,7 @@ static void EmitPromptEntry(MemoryPrintf &Canvas, MCPPromptInfo_t &Prompt)
 
 static char* MCPtool_listPrompts(JSON_Value &idRequest, JSON_Object &Arguments)
         {
-        const char *ProcName = "MCPtool_listPrompts";
+        static const char *ProcName = "MCPtool_listPrompts";
         const char *FilterName = Arguments.Find_member_string("promptName");
         if (MCPPromptInfoCount == 0 && MCPExternPromptInfoCount == 0)
                 {
@@ -2162,7 +2073,7 @@ static char* MCPtool_listPrompts(JSON_Value &idRequest, JSON_Object &Arguments)
 
 static char* MCPtool_getPrompt(JSON_Value &idRequest, JSON_Object &Arguments)
         {
-        const char *ProcName = "MCPtool_getPrompt";
+        static const char *ProcName = "MCPtool_getPrompt";
         const char *PromptName = Arguments.Find_member_string("name");
         if (!PromptName)
                 {
@@ -2272,7 +2183,7 @@ const char* MCPServer_AspectCredit = NULL;
 
 static char* MCPtool_about(MCPInputRequest &MCPRequest, JSON_Object &)
         {
-        const char *ProcName = "MCPtool_about";
+        static const char *ProcName = "MCPtool_about";
         TINFO(("%s: Reporting server identity",ProcName));
         JSON_Value *idRequest = MCPRequest.Get_id();
         MemoryPrintf Canvas;
@@ -2558,7 +2469,7 @@ char* FormMCPRequest_sampling(JSON_Value &idRequest,
 
 bool MCPMain(const char *InputRequestBuffer, FILE *out)
         {
-        const char *ProcName = "MCPMain";
+        static const char *ProcName = "MCPMain";
         char *MCPOutput = NULL;
         MCPInputRequest *MCPRequest = NULL;
         JSON_Value *idRequest = NULL;
@@ -2586,7 +2497,7 @@ bool MCPMain(const char *InputRequestBuffer, FILE *out)
                 TINFO(("%s: Tracing Input:",ProcName));
                 TraceJSON(InputRequestBuffer);
                 }
-        MCPRequest = ParseJSON_MSCPInput(InputRequestBuffer);
+        MCPRequest = ParseJSON_MCPInput(InputRequestBuffer);
         if (!MCPRequest)
                 {
                 TERROR(("%s: Unable to parse JSON MCP Request",ProcName));
@@ -2792,7 +2703,7 @@ OverflowResume: bool Valid = ValidateJSON(MCPOutput);
                                                            ? Method 
                                                            : "<none>");
                         }
-                char idBuf[64];
+                char idBuf[128];        // Matches _MCPIdString::idBuffer.
                 FuzzyPeekJSONId(MCPOutput,idBuf,sizeof(idBuf));
                 TINFO(("%s: Returning %u bytes (id=%s)",ProcName,
                                                         strlen(MCPOutput),
@@ -2869,7 +2780,6 @@ struct MCPServerIOMessage               // Requests handled in main thread.
 class MCPServerIOMain : public MessageQueueLoop
         {
         private:
-                FILE *inFile;
                 FILE *outFile;
         protected: 
                 // ------------------
@@ -2886,7 +2796,7 @@ class MCPServerIOMain : public MessageQueueLoop
                 bool OnMCPAsyncObject(void *UserPtr);
         public:
                 MCPServerIOMain();
-                ~MCPServerIOMain() {ClearQueue();}
+                virtual ~MCPServerIOMain() {Stop(true);}
                 bool PostAsyncObject(void *UserPtr);
                 bool PostMCPMessage(char *MCPMessage);
                 bool PostMCPNotify(void *UserPtr);
@@ -2916,8 +2826,7 @@ class MCPServerIOReader : public ASThread
 
 MCPServerIOMain::MCPServerIOMain()
         {
-        const char *ProcName = "MCPServerIOMain::MCPServerIOMain";
-        inFile = NULL;
+        static const char *ProcName = "MCPServerIOMain::MCPServerIOMain";
         outFile = NULL;
         return;
         }
@@ -3035,7 +2944,7 @@ bool MCPServerIOMain::OnMCPOutput(void *UserPtr)
         char *MCPOutput = (char *)UserPtr;
         if (MCPOutput) 
                 {
-                char idBuf[64];
+                char idBuf[128];        // Matches _MCPIdString::idBuffer.
                 FuzzyPeekJSONId(MCPOutput,idBuf,sizeof(idBuf));
                 bool Valid = ValidateJSON(MCPOutput);
                 if (!Valid)
@@ -3126,7 +3035,7 @@ void MCPServerIOMain::OnMessageDestruct(void *Msg)
 
 bool MCPServerIOMain::PostAsyncObject(void *UserPtr)
         {
-        const char *ProcName = "MCPServerIOMain::PostAsyncObject";
+        static const char *ProcName = "MCPServerIOMain::PostAsyncObject";
         bool Status = false;
         MCPServerIOMessage *MCPMsg;
         MCPMsg = new MCPServerIOMessage(MIM_MCPAsyncObject,UserPtr);
@@ -3143,7 +3052,7 @@ bool MCPServerIOMain::PostAsyncObject(void *UserPtr)
 
 bool MCPServerIOMain::PostMRTRReapTTL()
         {
-        const char *ProcName = "MCPServerIOMain::PostMRTRReapTTL";
+        static const char *ProcName = "MCPServerIOMain::PostMRTRReapTTL";
         bool Status = false;
         MCPServerIOMessage *MCPMsg;
         MCPMsg = new MCPServerIOMessage(MIM_MCPMRTRReapTTL,NULL);
@@ -3160,7 +3069,7 @@ bool MCPServerIOMain::PostMRTRReapTTL()
 
 bool MCPServerIOMain::PostMCPMessage(char *MCPMessage)
         {
-        const char *ProcName = "MCPServerIOMain::PostMCPMessage";
+        static const char *ProcName = "MCPServerIOMain::PostMCPMessage";
         bool Status = false;
         MCPServerIOMessage *MCPMsg;
         MCPMsg = new MCPServerIOMessage(MIM_MCPRequest,MCPMessage);
@@ -3177,7 +3086,7 @@ bool MCPServerIOMain::PostMCPMessage(char *MCPMessage)
 
 bool MCPServerIOMain::PostMCPNotify(void *UserPtr)
         {
-        const char *ProcName = "MCPServerIOMain::PostMCPNotify";
+        static const char *ProcName = "MCPServerIOMain::PostMCPNotify";
         bool Status = false;
         MCPServerIOMessage *MCPMsg;
         MCPMsg = new MCPServerIOMessage(MIM_NotifyAction,UserPtr);
@@ -3194,7 +3103,7 @@ bool MCPServerIOMain::PostMCPNotify(void *UserPtr)
 
 bool MCPServerIOMain::PostMCPOutput(char **MCPOutput)
         {
-        const char *ProcName = "MCPServerIOMain::PostMCPOutput";
+        static const char *ProcName = "MCPServerIOMain::PostMCPOutput";
         if (!MCPOutput || !*MCPOutput) 
                 {
                 TERROR(("%s: No MCPOutput to Post",ProcName));
@@ -3217,7 +3126,7 @@ bool MCPServerIOMain::PostMCPOutput(char **MCPOutput)
 
 bool MCPServerIOMain::PostShutdown()
         {
-        const char *ProcName = "MCPServerIOMain::PostShutdown";
+        static const char *ProcName = "MCPServerIOMain::PostShutdown";
         bool Status = false;
         MCPServerIOMessage *MCPMsg;
         MCPMsg = new MCPServerIOMessage(MIM_Shutdown,NULL);
@@ -3234,7 +3143,6 @@ bool MCPServerIOMain::PostShutdown()
 
 int MCPServerIOMain::Run(FILE *in, FILE *out)
         {
-        inFile = in;
         outFile = out;
         int rc = MessageQueueLoop::Run();
         return rc;
@@ -3254,14 +3162,14 @@ bool MCPServerIOReader::Start(FILE *in)
 
 int MCPServerIOReader::ThreadMain()
         {
-        const char *ProcName = "MCPServerIOReader::ThreadMain";
+        static const char *ProcName = "MCPServerIOReader::ThreadMain";
         bool Continue = true;
         while (Continue)
                 {
                 char *MCPMessage = ReadSTDIN_MCPMessage(inFile);
                 if (!MCPMessage)
                         {
-                        TERROR(("%s: stdin broken-pipe - Exit",ProcName));
+                        TINFO(("%s: stdin broken-pipe - Exit",ProcName));
                         MCPServerMain.PostShutdown();
                         Continue = false;
                         }
@@ -3330,7 +3238,7 @@ bool PostShutdown()
 
 bool MCPMainLoop(FILE *in, FILE *out)
         {
-        const char *ProcName = "MCPMainLoop";
+        static const char *ProcName = "MCPMainLoop";
         bool Status = true;
         do      {
                 char *stdinBuffer = ReadSTDIN_MCPMessage(stdin);
@@ -3438,7 +3346,7 @@ const char* MCPInputTestRequest_Discover =
 
 bool MCPTest(FILE *out)
         {
-        const char *ProcName = "MCPTest";
+        static const char *ProcName = "MCPTest";
         bool Status;
         // --------------
         // Initialization

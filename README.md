@@ -95,6 +95,7 @@ TSAR-MCP is built around a simple native execution path: an MCP client sends JSO
 * **Single-File Aspect Model:** New capabilities are typically added by implementing a small set of C or C++ hooks in one `.cpp` file, while the framework handles handshake, dispatch, and response shaping.
 * **Prompt polyfill:** Natively offers prompts as tools for agentic and LLM invocation (initiate `listPrompts` to wake LLM session awareness).
 * **The `CommonC` Foundation:** A robust, legacy-hardened C runtime that handles memory management, strings, and core utility services without external library bloat.
+* **Object-oriented `MCP` Patterns:** See the **[MCPServer Advanced Patterns Guide](./mcp/doc/MCPServer_AdvancedPatterns.md)** for `MCPAsyncWork` details.
 
 ## Included Examples & Roadmap
 
@@ -108,7 +109,9 @@ This repository includes the core SDK framework alongside target-specific MCP se
 
 * **Hello World & Port Scan ([`helloWorld`](./mcp/servers/helloWorld/MCPServer_helloWorld.cpp), [`portScan`](./mcp/servers/portScan/MCPServer_portScan.cpp)):** Basic implementations that demonstrate how to bind standard I/O to the native JSON-RPC parsing framework, and how to interact sequentially with local network sockets.
 
-* **Asynchronous Threading ([`setReminder`](./mcp/servers/setReminder/MCPServer_setReminder.cpp)):** Demonstrates the framework's native non-blocking threading model. By spawning a background timer that triggers delayed server-to-client notifications, this aspect proves how easily the C-runtime framework can handle long-running asynchronous tasks without freezing the AI client.
+* **Asynchronous Threading ([`setReminder`](./mcp/servers/setReminder/MCPServer_setReminder.cpp)):** Demonstrates the framework's native non-blocking threading model. By spawning a background timer that triggers delayed server-to-client notifications, this aspect proves how easily the C-runtime framework can handle long-running asynchronous tasks without freezing the AI client. This is the core deferred-response pattern (your own thread plus `PostNotifyAction`); see `netstat` below for the structured `MCPAsyncWork` framework.
+
+* **Asynchronous System Execution & Cancellation ([`netstat`](./mcp/servers/netstat/MCPServer_netstat.cpp)):** Demonstrates `MCPAsyncWork` by executing long-running system commands (`netstat` on Linux/AIX, PowerShell on Windows) on worker threads. Illustrates real-world process cancellation by binding `AbortWork()` to `pabortNT()` to terminate slow DNS resolutions when receiving a `notifications/cancelled` notification.
 
 **Enterprise Roadmap:** Because the framework compiles to a highly efficient native binary, future milestones will introduce heavy-duty enterprise aspects. This includes modules like **SAP Control (`sapControl`)**, which will allow LLMs to monitor processes and edit profiles across an SAP landscape using native commands, entirely eliminating the need for heavy SOAP gateways or third-party agents.
 
@@ -123,6 +126,7 @@ This repository is structured as a chronological masterclass in building zero-de
 5. **Tag:** `mcp/agentic_prompts/v2.2.0` - Prompts as agentic services via `listPrompts` and `getPrompt` tools.
 6. **Tag:** `mcp/stateless_rc/v2.3.0` - Introduces 2026-07-28 stateless protocol RC alongside process control (`popenNT`), generic REST utilities (`cURLRunner`), and custom lifecycle hooks (`NO_MAIN_MCP`).
 7. **Tag:** `mcp/aix_ibmi_port/v2.4.0` - Enterprise Platform Port: Adds native 64-bit IBM XL C/C++ (`xlC`) support for AIX and IBM i (PASE).
+8. **Tag:** `mcp/async_core/v2.5.0` - Introduces `MCPAsyncWork` for object-oriented background work-item dispatch and thread management.
 
 Please see **[ARCHITECTURE_MILESTONES.md](./ARCHITECTURE_MILESTONES.md)** for detailed instructions on how to check out these historical baselines.
 

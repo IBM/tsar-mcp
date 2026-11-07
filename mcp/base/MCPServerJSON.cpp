@@ -52,6 +52,95 @@
 #endif
 
 // ***************************************************************************
+// **** Independent File, Time, String Utilties ******************************
+// ***************************************************************************
+
+// ----------------------------------
+// ---- Extract delimited tokens ----
+// ----------------------------------
+
+const char* MCP_strtok(const char *Start, 
+                       size_t *Length, 
+                       const char *Delimiters)
+        {
+        if (!Start)
+                {
+                *Length = 0;
+                return NULL;
+                }
+        Start += *Length;
+        while (*Start && strchr(Delimiters,*Start)) Start++;
+        if (!*Start)
+                {
+                *Length = 0;
+                return NULL;
+                }
+        const char *End = Start;
+        while (*End && !strchr(Delimiters,*End)) End++;
+        *Length = (unsigned)(End - Start);
+        return Start;
+        }
+
+const char* MCP_ltrim(const char *Start, size_t *Length)
+        {
+        while (*Length && isspace(*Start))
+                {
+                Start++;
+                *Length = *Length - 1;
+                }
+        return Start;
+        }
+
+size_t* MCP_rtrim(const char *Start, size_t *Length)
+        {
+        while (*Length && isspace(Start[*Length - 1]))
+                {
+                *Length = *Length - 1;
+                }
+        return Length;
+        }        
+
+// ---------------------------------------------------
+// ---- Case insenstive strstr - Completion match ----
+// ---------------------------------------------------
+
+const char* MCP_stristr(const char *String, const char *ToFind)
+        {
+        if (!ToFind || !*ToFind) return String; // Found anything.
+        const char *spos = String;
+        const char *fpos = ToFind;
+        while (*spos && *fpos)
+	        {
+	        String = spos;
+	        while (*spos && *fpos && toupper(*spos) == toupper(*fpos))
+	                {
+	                spos++;
+	                fpos++;
+	                }
+	        if (*fpos)			// No match...
+	                {
+	                spos = String + 1;
+	                fpos = ToFind;
+	                }
+	        }
+    return *fpos == '\0' ? String : NULL;
+    }
+
+// -------------------------------------------------
+// ---- MCP_localtime - Thread safe localtime() ----
+// -------------------------------------------------
+
+struct tm* MCP_localtime(struct tm *tmTime, time_t tTime)
+        {
+        static CriticalSection CS;
+        CS.Take();
+        struct tm *Time = localtime(&tTime);
+        memcpy(tmTime,Time,sizeof(struct tm));
+        CS.Release();
+        return tmTime;
+        }
+
+// ***************************************************************************
 // **** BuildFQFN (Construct a Fully Qualified Path) *************************
 // ***************************************************************************
 
@@ -360,6 +449,13 @@ JSON_Object* BuildJSONObject(const char *JSONBuffer)
 // **** MCPInputRequest ******************************************************
 // ***************************************************************************
 
+MCPInputRequest::MCPInputRequest(JSON_Object **Request) 
+        {
+        JSONRequest = *Request;
+        *Request = NULL;
+        return;                        
+        }
+
 MCPInputRequest::MCPInputRequest(MCPInputRequest &Source)
         {
         if (this != &Source)
@@ -421,11 +517,12 @@ const char* MCPInputRequest::Get_jsonrpc()
 JSON_Value* MCPInputRequest::Get_id() 
         {
         static const char *ProcName = "MCPInputRequest::Get_id";
-        int id = 0;
         JSON_Value *Value = FindMemberValue("id");
-        if (Value && !Value->isString() && !Value->isNumber())
+        if (Value && !Value->isString() 
+                  && !Value->isNumber() 
+                  && !Value->isNull())
                 {
-                TERROR(("%s: id is not a String or Number",ProcName));
+                TERROR(("%s: id is not a String, Number or Null",ProcName));
                 return NULL;
                 }
         return Value;
@@ -595,23 +692,22 @@ int MCPInputRequest::Version()
 // **** Parse JSON Input Request *********************************************
 // ***************************************************************************
 
-MCPInputRequest* ParseJSON_MSCPInput(const char *JSONBuffer)
+MCPInputRequest* ParseJSON_MCPInput(const char *JSONBuffer)
         {
-        static const char *ProcName = "ParseJSON_MSCPInput";
+        static const char *ProcName = "ParseJSON_MCPInput";
         JSON_Object *JSONRequest = BuildJSONObject(JSONBuffer);
         if (!JSONRequest)
                 {
                 TERROR(("%s: BuildJSONObject() FAILED",ProcName));
                 return NULL;
                 }
-        MCPInputRequest *MCPRequest = new MCPInputRequest;
+        MCPInputRequest *MCPRequest = new MCPInputRequest(&JSONRequest);
         if (!MCPRequest)
                 {
                 TERROR(("%s: Unable to allocate MCPRequest",ProcName));
-                delete JSONRequest;
+                if (JSONRequest) delete JSONRequest;
                 return NULL;
                 }
-        MCPRequest->JSONRequest = JSONRequest;
         return MCPRequest;
         }
 
@@ -655,6 +751,17 @@ bool TraceJSON(const char *JSONBuffer, bool Pretty)
         DeleteJSON_mt(JSONExpression);
         TPRINT(("%s",Canvas.GetBuffer()));
         return true;
+        }
+
+void TraceJSON(MCPInputRequest &MCPRequest, bool Pretty)
+        {
+        static const char *ProcName = "TraceJSON";
+        JSON_Object *JSONRequest = MCPRequest._getJSONRequest();
+        if (!JSONRequest) return;
+        MemoryPrintf Canvas;
+        PrintJSONObject(Canvas,*JSONRequest,true,Pretty);
+        TPRINT(("%s",Canvas.GetBuffer()));
+        return;
         }
            
 // ***************************************************************************
@@ -735,17 +842,65 @@ int PrintJSONValue(MemoryPrintf &Canvas,        // Returns bytes output.
 
 void _MCPIdString::PrintToBuffer(JSON_Value *id)
         {
+        static const char *ProcName = "_MCPIdString::PrintToBuffer";
+        // ---------------------------------------------------------------
+        // id2string() is used to EMIT the id ("\"id\":%s"), not merely to
+        // trace it, so the result must always be a valid JSON token and
+        // must round-trip the peer's id exactly -- a quietly altered id
+        // correlates to the wrong request at the other end.
+        // ---------------------------------------------------------------
         if (!id) strcpy(idBuffer,"null");
         else if (id->isString())
                 {
                 JSON_Value_String *id_String = (JSON_Value_String *)id;
-                snprintf(idBuffer,sizeof(idBuffer),"\"%s\"",id_String->string);
-                idBuffer[sizeof(idBuffer)-1] = '\0';
+                const char *String = id_String->string ? id_String->string
+                                                       : "";
+                // -------------------------------------------------------
+                // Two quotes and a NUL must fit. snprintf() would drop the
+                // closing quote on overflow -- malformed JSON -- and a
+                // shortened id is worse than an admitted unknown, so an
+                // id that cannot be represented is reported as null.
+                // -------------------------------------------------------
+                size_t Length = strlen(String);
+                if (Length + 3 > sizeof(idBuffer))
+                        {
+                        TERROR(("%s: id too long (%u) for idBuffer (%u)",
+                                ProcName,
+                                (unsigned)Length,
+                                (unsigned)sizeof(idBuffer)));
+                        strcpy(idBuffer,"null");
+                        }
+                else    {
+                        snprintf(idBuffer,sizeof(idBuffer),"\"%s\"",String);
+                        idBuffer[sizeof(idBuffer)-1] = '\0';
+                        }
                 }
         else if (id->isNumber())
                 {
                 JSON_Value_Number *id_Number = (JSON_Value_Number *)id;
-                snprintf(idBuffer,sizeof(idBuffer),"%d",id_Number->int_number);
+                // -------------------------------------------------------
+                // int_number is a 32-bit truncation and double_number a
+                // lossy view of a big integer, so pick the field that
+                // represents this value exactly. isInt() reports when the
+                // short form is faithful; isDouble() when it is fractional.
+                // -------------------------------------------------------
+                if (id_Number->isInt())
+                        {
+                        snprintf(idBuffer,sizeof(idBuffer),"%d",
+                                 id_Number->int_number);
+                        }
+                else if (id_Number->isDouble())
+                        {
+                        snprintf(idBuffer,sizeof(idBuffer),"%g",
+                                 id_Number->double_number);
+                        }
+  #ifdef _WIN32
+                else snprintf(idBuffer,sizeof(idBuffer),"%I64d",
+                              id_Number->long_number);
+  #else
+                else snprintf(idBuffer,sizeof(idBuffer),"%lld",
+                              id_Number->long_number);
+  #endif
                 idBuffer[sizeof(idBuffer)-1] = '\0';
                 }  
         else strcpy(idBuffer,"null");
@@ -794,6 +949,16 @@ const char* FuzzyPeekJSONId(const char *JSON, char *Buf, size_t BufLen)
         while (*p && *p != ',' && *p != '}' && i < BufLen - 1)
                 Buf[i++] = *p++;
         Buf[i] = '\0';
+        // ---------------------------------------------------------------
+        // Mark a truncated id. Without this the tail of a long string id
+        // reads as an unterminated quote -- in a log that is indistinguish-
+        // able from genuinely malformed output, and sends the reader
+        // hunting a bug that is not there.
+        // ---------------------------------------------------------------
+        if (*p && *p != ',' && *p != '}' && BufLen > 4)
+                {
+                strcpy(Buf + BufLen - 4,"...");
+                }
         return Buf;
         }
 

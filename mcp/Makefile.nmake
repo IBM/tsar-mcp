@@ -96,6 +96,12 @@ CORE_OBJS = \
     $(O)\MCPServer.obj \
     $(O)\MCPServerJSON.obj
 
+# --- MCPAsyncWork thread framework (optional, see MCPAsyncCore.h) ---
+# Add $(ASYNC_OBJS) to the link rule of an aspect that derives MCPAsyncWork.
+
+ASYNC_OBJS = \
+    $(O)\MCPServerAsync.obj
+
 # --- CommonC ---
 
 COMMONC_OBJS = \
@@ -145,6 +151,7 @@ SHARED_OBJS = $(CORE_OBJS) $(COMMONC_OBJS) $(JSONPARSER_OBJS) $(PARSER_OBJS)
 
 ASPECTS = \
     $(OUTDIR)\MCPServer_helloWorld.exe \
+    $(OUTDIR)\MCPServer_netstat.exe \
     $(OUTDIR)\MCPServer_portScan.exe \
     $(OUTDIR)\MCPServer_setReminder.exe \
     $(OUTDIR)\MCPServer_wordArt.exe
@@ -153,6 +160,7 @@ all: _makedirs $(ASPECTS)
 
 # Named targets for individual aspects
 helloWorld:   _makedirs $(OUTDIR)\MCPServer_helloWorld.exe
+netstat:      _makedirs $(OUTDIR)\MCPServer_netstat.exe
 portScan:     _makedirs $(OUTDIR)\MCPServer_portScan.exe
 setReminder:  _makedirs $(OUTDIR)\MCPServer_setReminder.exe
 wordArt:      _makedirs $(OUTDIR)\MCPServer_wordArt.exe
@@ -174,6 +182,13 @@ cleanall:
 #
 
 $(OUTDIR)\MCPServer_helloWorld.exe: $(SHARED_OBJS) $(O)\MCPServer_helloWorld.obj
+    $(LINK) $(LDFLAGS) /OUT:$@ $** $(LIBS)
+
+#
+# netstat: core + shared + async (MCPAsyncWork)
+#
+
+$(OUTDIR)\MCPServer_netstat.exe: $(SHARED_OBJS) $(ASYNC_OBJS) $(O)\MCPServer_netstat.obj
     $(LINK) $(LDFLAGS) /OUT:$@ $** $(LIBS)
 
 #
@@ -213,12 +228,16 @@ $(OUTDIR)\MCPServer_wordArt.exe: $(SHARED_OBJS) $(O)\MCPServer_wordArt.obj
 {$(PARSER_DIR)\}.cpp{$(O)\}.obj:
     $(CC) $(CFLAGS) /I "$(COMMONC_DIR)" /I "$(PARSER_DIR)" /Fo$@ $<
 
-# MCP base (MCPServer.cpp, MCPServerJSON.cpp)
+# MCP base (MCPServer.cpp, MCPServerJSON.cpp, MCPServerAsync.cpp)
 {$(MCPBASE_DIR)\}.cpp{$(O)\}.obj:
     $(CC) $(CFLAGS) $(INC_CORE) /Fo$@ $<
 
 # MCP servers - helloWorld
 {$(MCPSRV_DIR)\helloWorld\}.cpp{$(O)\}.obj:
+    $(CC) $(CFLAGS) $(INC_CORE) /Fo$@ $<
+
+# MCP servers - netstat
+{$(MCPSRV_DIR)\netstat\}.cpp{$(O)\}.obj:
     $(CC) $(CFLAGS) $(INC_CORE) /Fo$@ $<
 
 # MCP servers - portScan

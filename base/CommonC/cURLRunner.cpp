@@ -10,6 +10,7 @@
  */
 //
 
+#include <errno.h>
 #include <stdlib.h>
 
 #include <ASThread.h>
@@ -59,14 +60,17 @@ bool cURLRunner::Cancel()
         return Status;
         }
 
-bool cURLRunner::Run(const char *Options, const char *URL)
+bool cURLRunner::Run(const char *Options, 
+                     const char *URL, 
+                     const char *Headers)
         {
         static const char *ProcName = "cURLRunner::Run"; 
         MemoryPrintf cURLCanvas;
-        cURLCanvas.printf("%s %s %s %s",cURLExe,
-                                        Options,
-                                        "--silent --show-error",
-                                        URL);
+        cURLCanvas.printf("%s %s%s %s %s",cURLExe,
+                                          Headers ? "-H @- " : "",
+                                          Options,
+                                          "--silent --show-error",
+                                          URL);
         const char *Command = cURLCanvas.GetBuffer();
         if (!Command)
                 {
@@ -83,19 +87,32 @@ bool cURLRunner::Run(const char *Options, const char *URL)
                 CancelHandleCS.Release();
                 return false;
                 }
+        FILE *in = NULL;
         FILE *out = NULL;
         FILE *err = NULL;
         TDEBUG(("%s: %s %s",ProcName,cURLExe,URL));
-        bool Status = popenNToe(Command,"r",&out,&err);
-        if (!Status || !out || !err)
+        bool Status = popenNTioe(Command,"r",&in,&out,&err);
+        if (!Status || !in || !out || !err)
                 {
                 TERROR(("%s: popenNT(%s) Failed errno=%d",ProcName,
                                                           Command,
                                                           errno));
+                if (in) fclose(in);
                 CancelHandleCS.Release();
                 return false;
                 }
-        CancelHandle = out;
+        // -------------------------------------------------------------------
+        // Hand the Headers over the pipe - never argv or disk ---------------
+        // ----------------------------------------------------
+        //  Still inside CancelHandleCS: Cancel() cannot pabortNT() the child
+        //  out from under the write, which on Unix would raise SIGPIPE.
+        //  Holding the lock across a write is only safe because Headers is a
+        //  few hundred bytes against a pipe buffer of 4K or more - it is
+        //  absorbed whole, so it cannot stall waiting on the child to drain.
+        // -------------------------------------------------------------------
+        if (Headers) fputs(Headers,in);
+        fclose(in);                             // Child is owed its EOF.
+        CancelHandle = out;        
         CancelHandleCS.Release();
         // ----------------
         // Read Pipe Output
@@ -117,7 +134,6 @@ bool cURLRunner::Run(const char *Options, const char *URL)
                                 }
                         break;
                         }
-                
                 cURLCanvas.fputs(Buffer);
                 }
         while (err && !feof(err))

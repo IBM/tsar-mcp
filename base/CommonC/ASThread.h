@@ -462,7 +462,7 @@ class MessageQueue : public MessageQueueIF
                 friend class MessageQueueThread;
         public:
                 MessageQueue();
-                virtual ~MessageQueue() {Clear();}
+                virtual ~MessageQueue();
                 void Clear();
                 unsigned GetMessageCount();
                 virtual void* Receive();

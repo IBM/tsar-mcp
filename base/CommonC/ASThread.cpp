@@ -1210,12 +1210,31 @@ MessageQueue::MessageQueue()
         return;
         }
 
+MessageQueue::~MessageQueue() 
+        {
+        static const char *ProcName = "MessageQueue::~MessageQueue";
+        unsigned Dropped = GetMessageCount();
+        if (Dropped)
+                {
+                // -----------------------------------------------
+                // OnMessageDestruct() is the base no-op; the 
+                // derived class destructor should have Clear()ed.
+                // -----------------------------------------------
+                TERROR(("%s: %u Message(s) Dropped: Queue must be "
+                        "emptied by the Derived Class",ProcName,
+                                                       Dropped));
+                }
+        Clear();
+        return;
+        }
+
 void MessageQueue::Clear()
         {
-        while (GetMessageCount())
-                {
-                void *Msg = Receive();
-                OnMessageDestruct(Msg);
+        void *Msg = Receive(0);
+        while (Msg)                             // Receive(0) never blocks:
+                {                               // a concurrent consumer
+                OnMessageDestruct(Msg);         // must not hang Clear().
+                Msg = Receive(0);
                 }
         return;
         }
@@ -1301,13 +1320,14 @@ MessageQueueLoop::MessageQueueLoop()
 
 void MessageQueueLoop::ClearQueue()
         {
-        while (Queue.GetMessageCount())
-                {
-                void *Msg = Queue.Receive();
+        void *Msg = Queue.Receive(0);   // Receive(0) never blocks:
+        while (Msg)                     // the loop thread may still
+                {                       // be consuming.
                 if (Msg != &MessageQueueLoop_ShutdownMSG)
                         {
                         OnMessageDestruct(Msg);
                         }
+                Msg = Queue.Receive(0);
                 }
         return;
         }

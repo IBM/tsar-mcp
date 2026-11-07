@@ -72,6 +72,11 @@ CORE_OBJS = \
     $(O)/MCPServer.o \
     $(O)/MCPServerJSON.o
 
+# Optional: MCPAsyncWork thread framework (see MCPAsyncCore.h).
+# Add $(ASYNC_OBJS) to the link rule of an aspect that derives MCPAsyncWork.
+ASYNC_OBJS = \
+    $(O)/MCPServerAsync.o
+
 COMMONC_OBJS = \
     $(O)/ASThread.o \
     $(O)/AutoString.o \
@@ -113,15 +118,17 @@ SHARED_OBJS = $(CORE_OBJS) $(COMMONC_OBJS) $(JSONPARSER_OBJS) $(PARSER_OBJS)
 
 ASPECTS = \
     $(OUTDIR)/MCPServer_helloWorld \
+    $(OUTDIR)/MCPServer_netstat \
     $(OUTDIR)/MCPServer_portScan \
     $(OUTDIR)/MCPServer_setReminder \
     $(OUTDIR)/MCPServer_wordArt
 
-.PHONY: all clean cleanall _makedirs helloWorld portScan setReminder wordArt
+.PHONY: all clean cleanall _makedirs helloWorld netstat portScan setReminder wordArt
 
 all: _makedirs $(ASPECTS)
 
 helloWorld:   _makedirs $(OUTDIR)/MCPServer_helloWorld
+netstat:      _makedirs $(OUTDIR)/MCPServer_netstat
 portScan:     _makedirs $(OUTDIR)/MCPServer_portScan
 setReminder:  _makedirs $(OUTDIR)/MCPServer_setReminder
 wordArt:      _makedirs $(OUTDIR)/MCPServer_wordArt
@@ -140,6 +147,9 @@ cleanall:
 # ============================================================================
 
 $(OUTDIR)/MCPServer_helloWorld: $(SHARED_OBJS) $(O)/MCPServer_helloWorld.o
+	$(CXX) $(LDFLAGS) $^ -o $@ $(LIBS)
+
+$(OUTDIR)/MCPServer_netstat: $(SHARED_OBJS) $(ASYNC_OBJS) $(O)/MCPServer_netstat.o
 	$(CXX) $(LDFLAGS) $^ -o $@ $(LIBS)
 
 $(OUTDIR)/MCPServer_portScan: $(SHARED_OBJS) $(COMMONC_NET_OBJS) $(O)/MCPServer_portScan.o
@@ -167,12 +177,16 @@ $(O)/%.o: $(JSONPARSER_DIR)/%.cpp
 $(O)/%.o: $(PARSER_DIR)/%.cpp
 	$(CXX) $(CXXFLAGS) -I"$(COMMONC_DIR)" -I"$(PARSER_DIR)" -c $< -o $@
 
-# MCP base (MCPServer.cpp, MCPServerJSON.cpp)
+# MCP base (MCPServer.cpp, MCPServerJSON.cpp, MCPServerAsync.cpp)
 $(O)/%.o: $(MCPBASE_DIR)/%.cpp
 	$(CXX) $(CXXFLAGS) $(INC_CORE) -c $< -o $@
 
 # MCP servers - helloWorld
 $(O)/%.o: $(MCPSRV_DIR)/helloWorld/%.cpp
+	$(CXX) $(CXXFLAGS) $(INC_CORE) -c $< -o $@
+
+# MCP servers - netstat
+$(O)/%.o: $(MCPSRV_DIR)/netstat/%.cpp
 	$(CXX) $(CXXFLAGS) $(INC_CORE) -c $< -o $@
 
 # MCP servers - portScan

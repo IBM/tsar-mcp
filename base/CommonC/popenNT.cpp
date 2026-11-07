@@ -25,6 +25,7 @@
 #else
         #include <sys/wait.h>
         #include <signal.h>
+        #include <time.h>
         #include <unistd.h>
         #define HANDLE int
 #endif
@@ -366,6 +367,7 @@ class popenFILESetList : public _popenFILESetList
                 ~popenFILESetList();
                 void AddFILESet(popenFILESet *Set);
                 HANDLE FindProcess(FILE *ToCompare);
+                long FindProcessID(FILE *ToCompare);
                 popenFILESet* RemoveFILESet(FILE *ToCompare);
         }; 
 
@@ -415,6 +417,24 @@ HANDLE popenFILESetList::FindProcess(FILE *ToCompare)
         return hProcess;
         }
 
+long popenFILESetList::FindProcessID(FILE *ToCompare)
+        {
+        long pid = -1;
+        ListMutex.Take();
+        popenFILESet *Current = _FindFILESet(ToCompare); 
+        if (Current)
+                {
+  #ifdef _WIN32
+                DWORD ProcessID = GetProcessId(Current->hProcess);
+                pid = ProcessID ? (long)ProcessID : -1;
+  #else
+                pid = (long)Current->hProcess;
+  #endif
+                }
+        ListMutex.Release();
+        return pid;
+        }
+
 popenFILESet* popenFILESetList::RemoveFILESet(FILE *ToCompare)
         {
         ListMutex.Take();
@@ -450,6 +470,11 @@ FILE* popenNT(const char *Command, const char *Mode)
         return out;
         }
 
+long popenNT_getpid(FILE *stream)
+        {
+        return FILESetList.FindProcessID(stream);
+        }
+
 // -----------------------------------
 // ---- argv convenience wrappers ----
 // -----------------------------------
@@ -468,6 +493,89 @@ bool popenNTio(int argc, const char *argv[],
                FILE **out)
 	{
         return popenNTioe(argc,argv,Mode,in,out,NULL);
+        }
+
+// ================================
+// ==== pwaitNT Extension =========
+// =======================
+//      Returns: 1 = Exited.
+//               0 = Still running.
+//              -1 = Error
+// ================================
+
+int pwaitNT(FILE *stream, unsigned long timeoutMS)
+        {
+        static const char *ProcName = "pwaitNT";
+        if (!stream)
+                {
+                TERROR(("%s: Missing parameter: stream",ProcName));
+                return -1;
+                }
+  #ifdef _WIN32
+        int Status = -1;
+        HANDLE hProcess = FILESetList.FindProcess(stream);
+        if (!hProcess)
+                {
+                TERROR(("%s: FILESetList.FindProcess() Failed",ProcName));
+                return -1;
+                }
+        DWORD result = WaitForSingleObject(hProcess, (DWORD)timeoutMS);
+        if (result == WAIT_OBJECT_0) 
+                {
+                Status = 1;                     // Process exited.
+                }
+        else if (result == WAIT_TIMEOUT) 
+                {
+                Status = 0;                     // Timeout reached.
+                }
+        else    {
+                TERROR(("%s: WaitForSingleObject() Failed",ProcName));
+                Status = -1;
+                }
+  #else /* UNIX */
+        int Status = 0;                         // Timeout reached.
+        long pid = popenNT_getpid(stream);
+        if (pid <= 0)
+                {
+                TERROR(("%s: popenNT_getpid() Failed",ProcName));
+                return -1;
+                }
+        unsigned long elapsedMS = 0;
+        const unsigned long pollIntervalMS = 10;
+        while (true)
+                {
+                siginfo_t info = {0};
+                int rc = waitid(P_PID, 
+                                (id_t)pid,
+                                &info, 
+                                WEXITED | 
+                                WNOHANG | 
+                                WNOWAIT); // WNOWAIT ensures child isn't reaped.
+                if (rc == 0 && info.si_pid == pid) 
+                        {
+                        Status = 1;             // Process exited.
+                        break;
+                        }
+                if (rc == -1 && errno == ECHILD) 
+                        {
+                        TERROR(("%s: Process not a child: %ld",ProcName,pid));
+                        Status = -1;            // Child Process does not exist.
+                        break;
+                        }
+                if (elapsedMS >= timeoutMS) break;  // Poll-only when timeout 0.
+                unsigned long remainMS = timeoutMS - elapsedMS;
+                unsigned long sleepMS = remainMS < pollIntervalMS 
+                                      ? remainMS 
+                                      : pollIntervalMS;
+                struct timespec ts = {0};
+                ts.tv_sec = sleepMS / 1000;
+                ts.tv_nsec = (sleepMS % 1000) * 1000000;
+                while (nanosleep(&ts,&ts) == -1 && errno == EINTR)
+                        ;                       // Finish the remaining sleep.
+                elapsedMS += sleepMS;
+                }
+  #endif
+        return Status;
         }
 
 // ***************************************************************************
@@ -856,6 +964,44 @@ static inline int pipe2(int pipefd[2], int flags)
 
 #endif
 
+// *********************************************************
+// **** Child Process Diagnostics **************************
+// *******************************
+// Between fork() and exec() no mutex or memory allocations.
+// *********************************************************
+
+static void WriteSTDERR(const char *Text)
+        {
+        if (!Text) return;
+        size_t Length = strlen(Text);
+        while (Length)
+                {
+                ssize_t nBytes = write(STDERR_FILENO,Text,Length);
+                if (nBytes <= 0) break;
+                Text += nBytes;
+                Length -= (size_t)nBytes;
+                }
+        return;
+        }
+
+static void WriteEXECError(const char *Program, int Error)
+        {
+        char Digits[16];
+        char *Pos = Digits + sizeof(Digits) - 1;
+        unsigned Value = (unsigned)Error;
+        *Pos = '\0';
+        do      {
+                *--Pos = (char)('0' + (Value % 10));
+                Value /= 10;
+                } while (Value && Pos > Digits);
+        WriteSTDERR("ERROR: popenNTioe: Unable to exec(");
+        WriteSTDERR(Program);
+        WriteSTDERR(") (errno=");
+        WriteSTDERR(Pos);
+        WriteSTDERR(")\n");
+        return;
+        }
+
 // *****************************
 // **** popenNTioe (argv[]) ****
 // *****************************
@@ -960,14 +1106,24 @@ bool popenNTioe(int argc, const char *argv[],
                 if (ReadPipe >= 0) close(ReadPipe);
                 if (ErrorPipe >= 0) close(ErrorPipe);
                 if (WritePipe >= 0) close(WritePipe);
+                // ------------------------------------------
+                // Unblock all signals for the child process.
+                // -------------------------------------------
+                sigset_t NoSignals;
+                sigemptyset(&NoSignals);
+                pthread_sigmask(SIG_SETMASK,&NoSignals,NULL);
+                // -------------------------------------------
                 // Build NULL-terminated argv copy for execvp.
+                // -------------------------------------------
                 char **argvExec = (char **)alloca((argc+1) * sizeof(char *));
                 memcpy(argvExec, argv, argc * sizeof(char *));
                 argvExec[argc] = NULL;
                 rc = execvp(argvExec[0],argvExec);
-                TERROR(("%s: Unable to exec(%s) (errno=%d)",ProcName,
-                                                            argv[0],
-                                                            errno));
+                // -------------------------------------------------------
+                // execvp() returns only on failure. errno is passed as an
+                // argument so it is read before write() can clobber it.
+                // -------------------------------------------------------
+                WriteEXECError(argv[0],errno);
                 _exit(-1);                      // _exit in child.
                 }
         else if (pid > 0)                       // In Parent:
@@ -1141,10 +1297,6 @@ int pcloseNT(FILE *stream)
         delete FILESet;
 	return ExitCode;
 	}
-
-// ===========================================================================
-// ==== pabort Extension =====================================================
-// ===========================================================================
 
 // ******************
 // **** pabortNT ****

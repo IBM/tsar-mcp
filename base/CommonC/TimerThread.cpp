@@ -16,7 +16,7 @@
 	#include <sys/types.h>
 #endif
 
-#if defined(__OS400_TGTVRM__) || defined(__GNUC__) /* iSeries and Linux */
+#ifdef __OS400_TGTVRM__ /* iSeries */
 
         #include <sys/time.h>
 
@@ -44,14 +44,32 @@ static void ftime(struct timeb *Timeb)
 
         #include <sys/timeb.h>
 
-#endif /* !iSeries && !Linux */
+#endif /* !iSeries */
 
+#include <assert.h>
+
+#include <LevelTrace.h>
 #include <TimerThread.h>
 
 #define timebToMS(CurrentTime)                                               \
         (CurrentTime.time * (Ltime_t)1000 + CurrentTime.millitm)
 
-static int TimerThread_ShutdownMSG;             // Just use the address.
+struct KillTimerINFO : public TimerMessage
+        {
+        MessageQueueIF *Queue;
+        Semaphore Done;
+        KillTimerINFO(MessageQueueIF &inQueue)
+                :
+                TimerMessage(TimerMsgKind_Kill),
+                Done(0)
+                {
+                Queue = &inQueue;
+                }
+        };
+
+static int TimerThread_ShutdownMSG;     // Fixed address is the message.
+
+static Mutex IdleKillMutex;     // Serializes the stopped-Timer sweep.
 
 TimerThread::TimerThread()
         {
@@ -94,10 +112,21 @@ void TimerThread::Clear()       // Call only from thread or when stoped.
                 {
                 if (Msg != &TimerThread_ShutdownMSG)
                         {
-                        Current = (TimerItem *)Msg;
-                        OnMessageDestruct(*Current->Queue,
-                                          Current->MessageToPost);
-                        delete Current;
+                        TimerMessage *Message = (TimerMessage *)Msg;
+                        if (Message->Kind == TimerMsgKind_Kill)
+                                {
+                                // ---------------------------------------
+                                // Release the waiting KillTimer() caller.
+                                // ---------------------------------------
+                                KillTimerINFO *Kill = (KillTimerINFO *)Message;
+                                Kill->Done.Release();
+                                }
+                        else    {
+                                Current = (TimerItem *)Message;
+                                OnMessageDestruct(*Current->Queue,
+                                                  Current->MessageToPost);
+                                delete Current;
+                                }
                         }
                 Msg = TimerQueue.Receive(0);
                 }
@@ -114,6 +143,95 @@ void TimerThread::Clear()       // Call only from thread or when stoped.
                 Current = TimerList.GetFirst();
                 }
         return;         
+        }
+
+void TimerThread::KillQueueTimers(MessageQueueIF *Queue)  // ThreadMain only.
+        {
+        TimerItem *Current = TimerList.GetFirst();
+        while (Current)
+                {
+                TimerItem *Next = TimerList.GetNext(Current);
+                if (Current->Queue == Queue)
+                        {
+                        TimerList.Remove(Current);
+                        OnMessageDestruct(*Current->Queue,
+                                          Current->MessageToPost);
+                        delete Current;
+                        }
+                Current = Next;
+                }
+        return;
+        }
+
+void TimerThread::AbsorbTimerQueue()
+        {
+        static const char *ProcName = "TimerThread::AbsorbTimerQueue";
+        // ---------------------------------------------------------
+        // For stopped Timer: Moves pending SetTimer requests to the 
+        // TimerList for removal by KillTimers().
+        // ---------------------------------------------------------
+        unsigned Count = TimerQueue.GetMessageCount();
+        while (Count--)
+                {
+                void *Msg = TimerQueue.Receive(0);
+                if (!Msg) break;
+                if (Msg == &TimerThread_ShutdownMSG)
+                        {
+                        // ---------------
+                        // Return to Queue
+                        // ---------------
+                        TimerQueue.SendPriority(Msg);
+                        continue;
+                        }
+                TimerMessage *Message = (TimerMessage *)Msg;
+                if (Message->Kind == TimerMsgKind_Kill)
+                        {
+                        // -----------------------------------------------
+                        // Stopped with someone else's KillTimers() in
+                        // flight -- blocked on a sweep that will not run.
+                        // Returned to the queue so a correct Stop(true)
+                        // can still Clear() them.
+                        // -----------------------------------------------
+                        TERROR(("%s: Stopped with a Kill Request pending",
+                                ProcName));
+                        TimerQueue.Send(Msg);
+                        continue;
+                        }
+                AddTimerItem((TimerItem *)Message);
+                }
+        return;
+        }
+
+bool TimerThread::KillTimers(MessageQueueIF &Queue)
+        {
+        static const char *ProcName = "TimerThread::KillTimers";
+        // --------------------------------------------------
+        // Blocks until prior timers for 'Queue' are removed.
+        // --------------------------------------------------
+        if (!IsStarted())
+                {
+                // -------------------------------------------------------
+                // Nobody would answer a queued request -- but nobody is
+                // consuming TimerQueue or walking TimerList either, so
+                // the caller can safely do the thread's own two steps:
+                // absorb what was sent, then sweep the list.
+                // -------------------------------------------------------
+                IdleKillMutex.Take();
+                AbsorbTimerQueue();
+                KillQueueTimers(&Queue);
+                IdleKillMutex.Release();
+                return true;
+                }
+        KillTimerINFO Request(Queue);
+        bool Status = TimerQueue.Send(&Request);
+        if (!Status)
+                {
+                TERROR(("%s: Unable to post Kill Request",ProcName));
+                }
+        else    {
+                Request.Done.Take();    // Released by thread or Clear().
+                }
+        return Status;
         }
 
 void TimerThread::OnMessageDestruct(MessageQueueIF& /*Queue*/, void* /*Msg*/)
@@ -158,22 +276,47 @@ int TimerThread::ThreadMain()
         void *AddMsg = NULL;
         while (1)
                 {
+                // -------------------------
+                // ---- Handle Requests ----
+                // -------------------------
                 if (!AddMsg) AddMsg = TimerQueue.Receive(0);
                 while (AddMsg)
                         {
+                        // --------
+                        // Shutdown
+                        // --------
                         if (AddMsg == &TimerThread_ShutdownMSG)
                                 {
-                                return 0;       // End of Thread.
+                                goto Exit;      // End of thread -- bye.
                                 }
-                        AddTimerItem((TimerItem *)AddMsg);
+                        TimerMessage *Message = (TimerMessage *)AddMsg;
+                        // ----------
+                        // Kill Timer
+                        // ----------
+                        if (Message->Kind == TimerMsgKind_Kill)
+                                {
+                                KillTimerINFO *Kill = (KillTimerINFO *)Message;
+                                KillQueueTimers(Kill->Queue);
+                                Kill->Done.Release(); // Release caller.
+                                }
+                        // ---------
+                        // Add Timer
+                        // ---------
+                        else AddTimerItem((TimerItem *)Message);
                         AddMsg = TimerQueue.Receive(0);
                         }
+                // --------------
+                // ---- Idle ----
+                // --------------
                 TimerItem *Current = TimerList.GetFirst();
                 if (!Current) 
                         {
                         AddMsg = TimerQueue.Receive();
                         continue;
                         }
+                // ----------------------------------
+                // ---- Wait for Timeout or Work ----
+                // ----------------------------------
                 ftime(&CurrentTime);
                 CurrentTimeMS = timebToMS(CurrentTime);
                 ElapsedTimeMS = (unsigned)(CurrentTimeMS - StartupTimeMS);
@@ -188,6 +331,7 @@ int TimerThread::ThreadMain()
                 TimerList.Remove(Current);
                 delete Current;
                 }
+  Exit: return 0;
         }
 
 // ***************************************************************************

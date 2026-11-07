@@ -77,6 +77,12 @@ bool popenNTioe(int argc, const char *argv[],
 
 int pcloseNT(FILE *stream);     // Close with 'out' or 'err' (not 'in').s
 
+// -----------------------------------------------
+// ---- Wait (rc: -1=error 0=running 1=ended) ----
+// -----------------------------------------------
+
+int pwaitNT(FILE *stream, unsigned long timeoutMS);
+
 // -------------------------------------------
 // ---- Abort (call in- or out-of-thread) ----
 // -------------------------------------------
@@ -84,6 +90,12 @@ int pcloseNT(FILE *stream);     // Close with 'out' or 'err' (not 'in').s
 bool pabortNT(FILE *stream);    // Terminates the child (must still pclose()).
 
 void pabortALL();               // Terminates ALL active child processes!!
+
+// -------------------------------------------
+// ---- Identify the spawned child by PID ----
+// -------------------------------------------
+
+long popenNT_getpid(FILE *stream);  // Child PID (-1 if unknown); 'out'/'err'.
 
 // ****************************************************************************
 // **** Helper Command to argv Utilities **************************************

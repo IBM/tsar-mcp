@@ -24,10 +24,10 @@
 
 #ifndef _Network_Trasmission
 
-	#define _Network_Trasmission
+        #define _Network_Trasmission
 
 #if !defined(__WIN32__) && defined(_WIN32)
-	#define __WIN32__
+        #define __WIN32__
 #endif
 
 typedef bool flag;
@@ -39,14 +39,14 @@ typedef bool flag;
 #else /* __UNIX__ */
 
         #include <errno.h>
-	#include <sys/socket.h>
-	#include <sys/types.h>
-	#include <netinet/in.h>
+        #include <sys/socket.h>
+        #include <sys/types.h>
+        #include <netinet/in.h>
         #include <netinet/tcp.h>
 
-	#define SOCKET int
-	#define SOCKET_ERROR ((int)-1)
-	#define INVALID_SOCKET ((int)-1)
+        #define SOCKET int
+        #define SOCKET_ERROR ((int)-1)
+        #define INVALID_SOCKET ((int)-1)
         #define WSAGetLastError() errno 
         #define WSAENOTSOCK EBADF
         #define WSAECONNREFUSED ECONNREFUSED
@@ -114,16 +114,20 @@ struct socketCBaddr_t
         #pragma pack(pop)
 #endif
 
-#ifdef SOCKETCB_IPV6
-	typedef socketCBaddr_t socketCBaddr;
+#ifndef SOCKETCB_IPV6
+        #define SOCKETCB_IPV6 1
+#endif
+      
+#if SOCKETCB_IPV6
+        typedef socketCBaddr_t socketCBaddr;
 #else
         typedef sockaddr_in socketCBaddr;
 #endif
 
 #define NOSOCKETTYPE 0
 #define NOADDRESSFAMILY 0
-#define CLOSE_LINGER_TIME 5	  		// Seconds before socket close.
-#define LISTEN_BACKLOG_SIZE 128            	// Maximum pending connections.
+#define CLOSE_LINGER_TIME 5                     // Seconds before socket close.
+#define LISTEN_BACKLOG_SIZE 128                 // Maximum pending connections.
 #define NULLSOCKET INVALID_SOCKET
 #define IsNullSocket(socket) (socket == INVALID_SOCKET)
 #define IsValidSocket(socket) (socket != INVALID_SOCKET)
@@ -151,15 +155,15 @@ flag ResolveAddress(socketCBaddr *AddrDest, const char *Host,
 // ****************************************************************************
                                             
 class SocketCtrlBlock
-	{
-	private:
+        {
+        private:
                 flag Bound;
-		flag Connected;
+                flag Connected;
                 flag ReuseAddress;
                 flag SkipIPHeader;
                 flag NonblockingClose;
-		socketCBaddr ClientAddr;
-		socketCBaddr LocalAddr;
+                socketCBaddr ClientAddr;
+                socketCBaddr LocalAddr;
                 struct _DeferSet
                         {
                         flag SetBlocking;
@@ -170,74 +174,74 @@ class SocketCtrlBlock
                         flag SetNoDelay;
                         } DeferSet;
                 int LastError;
-		SOCKET Socket;
-		int SocketType;
+                SOCKET Socket;
+                int SocketType;
                 int AddressFamily;
-		flag OpenSocket(int AddressFamily,
+                flag OpenSocket(int AddressFamily,
                                 const char *Address, 
                                 int Port, 
                                 int Type, 
                                 int Proto);
                 void _Init(size_t _VerifyStruct);
-	protected:
+        protected:
                 flag _IsDeferedOpen();
                 flag Bind();
                 flag ResolveAddress(socketCBaddr *Dest, 
                                     const char *Host, 
                                     int Port);
-		void SetLastError(int Error) {LastError = Error;}
-	public:
+                void SetLastError(int Error) {LastError = Error;}
+        public:
                 SocketCtrlBlock() {_Init(sizeof(SocketCtrlBlock));}
-		~SocketCtrlBlock();
+                ~SocketCtrlBlock();
                 flag AllowAddressReuse(flag allow);
-		flag Close(flag Gracefull = false);
+                flag Close(flag Gracefull = false);
                 void GetBufferSizes(size_t *SendLength, size_t *RecvLength);
-		socketCBaddr* GetClientAddress() {return &ClientAddr;}
-		int GetLastError() {return LastError;}
-		socketCBaddr* GetLocalAddress() {return &LocalAddr;}
+                socketCBaddr* GetClientAddress() {return &ClientAddr;}
+                int GetLastError() {return LastError;}
+                socketCBaddr* GetLocalAddress() {return &LocalAddr;}
                 flag GetNoDelay();
-		SOCKET GetSocketHandle();
-		flag IsDatagramSocket() {return SocketType == SOCK_DGRAM;}
-		flag IsOpened();
-		flag IsRawSocket() {return SocketType == SOCK_RAW;}
+                SOCKET GetSocketHandle();
+                flag IsDatagramSocket() {return SocketType == SOCK_DGRAM;}
+                flag IsOpened();
+                flag IsRawSocket() {return SocketType == SOCK_RAW;}
                 flag IsReadyToRead(unsigned TimeoutSEC, unsigned TimeoutUSEC);
                 flag IsStreamSocket() {return SocketType == SOCK_STREAM;}
-		flag OpenRAWsocket(const char *LocalAddress, int Protocol);
-		flag OpenTCPsocket(const char *LocalAddress, int Port);
-		flag OpenUDPsocket(const char *LocalAddress, int Port);
+                flag OpenRAWsocket(const char *LocalAddress, int Protocol);
+                flag OpenTCPsocket(const char *LocalAddress, int Port);
+                flag OpenUDPsocket(const char *LocalAddress, int Port);
                 flag OpenTCPsocketV6(const char *LocalAddress, int Port);
-		flag OpenUDPsocketV6(const char *LocalAddress, int Port);
+                flag OpenUDPsocketV6(const char *LocalAddress, int Port);
                 flag SetBlocking();
                 void SetBufferSizes(size_t SendLength, size_t RecvLength);
                 void SetHeaderCtrl(flag SkipHeader, flag IncludeHeader);
                 void SetKeepAlive(flag KeepAlive);
                 void SetNoDelay(flag NoDelay);
-		flag SetNonblocking();
+                flag SetNonblocking();
                 void SetNonblockingClose();
                 void _SetLastError(int Error) {LastError = Error;}
                 flag _SetSocketHandle(SOCKET Handle);
-		int setsockopt(int level,int optname,char *optval,int optlen);
+                int setsockopt(int level,int optname,char *optval,int optlen);
                 flag Shutdown();
-		// ************************
-		// **** Action Methods ****
-		// ************************
-		flag Listen();
-		flag Accept(SocketCtrlBlock &NewSocket);
-		flag Connect(const socketCBaddr &ClientAddress);
-		flag Connect(const char *ClientAddress, int Port);
-		int Peek(char *Buffer, int Size);
-		int PeekFrom(socketCBaddr *Addr, char *Buffer, int Size);
-		int Receive(char *Buffer, int Size);
-		int ReceiveFrom(socketCBaddr *ClientAddr, char *Buff, int Size);
-		int Send(const char *Buffer, int Size);
-		int SendTo(const char *Address, 
+                // ************************
+                // **** Action Methods ****
+                // ************************
+                flag Listen();
+                flag Accept(SocketCtrlBlock &NewSocket);
+                flag Connect(const socketCBaddr &ClientAddress);
+                flag Connect(const char *ClientAddress, int Port);
+                int Peek(char *Buffer, int Size);
+                int PeekFrom(socketCBaddr *Addr, char *Buffer, int Size);
+                int Receive(char *Buffer, int Size);
+                int ReceiveFrom(socketCBaddr *ClientAddr, char *Buff, int Size);
+                int Send(const char *Buffer, int Size);
+                int SendTo(const char *Address, 
                            int Port, 
                            const char *Buffer, 
                            int Size);
-		int SendTo(const socketCBaddr &ClientAddr, 
+                int SendTo(const socketCBaddr &ClientAddr, 
                            const char *Buffer, 
                            int Size);
-	};
+        };
 
 inline flag SocketCtrlBlock::IsOpened() 
         {

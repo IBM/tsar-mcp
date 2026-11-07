@@ -22,11 +22,15 @@
         #define __WIN32__
 #endif
 
+#ifndef SOCKETCB_IPV6
+        #define SOCKETCB_IPV6 1
+#endif
+
 #ifdef __WIN32__
 
         #if defined(_NOAventail_Socket)
                 #define USE_WINSOCK2 1
-        #elif defined(SOCKETCB_IPV6)
+        #elif SOCKETCB_IPV6
                 #define USE_WINSOCK2 1
         #elif !defined(USE_WINSOCK2)
                 #define USE_WINSOCK2 0
@@ -184,7 +188,7 @@ void DeinitializeSockets()
 // **** Address utilities *****************************************************
 // ****************************************************************************
 
-#ifdef SOCKETCB_IPV6
+#if SOCKETCB_IPV6
 
 // **************************
 // ********** IPv6 **********
@@ -368,7 +372,7 @@ flag ResolveAddress(socketCBaddr *AddrDest, const char *Host,
                                             const char *Protocol)
         {
         int LastError;
-  #ifdef SOCKETCB_IPV6
+  #if SOCKETCB_IPV6
         flag rc = ResolveAddress(AddrDest,
                                  !Host || !*Host ? AF_INET6 : AF_UNSPEC,
                                  Host,
@@ -388,7 +392,7 @@ flag ResolveAddress(socketCBaddr *AddrDest, const char *Host,
 flag ResolveAddress(socketCBaddr *AddrDest, const char *Host, int Port)
         {
         int LastError;
-  #ifdef SOCKETCB_IPV6
+  #if SOCKETCB_IPV6
         flag rc = ResolveAddress(AddrDest,
                                  !Host || !*Host ? AF_INET6 : AF_UNSPEC,
                                  Host,
@@ -993,14 +997,14 @@ flag SocketCtrlBlock::ResolveAddress(socketCBaddr *Dest,
         flag rc = ::ResolveAddress(Dest,
                                    AddressFamily != NOADDRESSFAMILY
                                    ? AddressFamily
-  #ifdef SOCKETCB_IPV6
+  #if SOCKETCB_IPV6
                                    : !Host || !*Host
                                      ? AF_INET6
                                      : inet_addr((char *)Host) != INADDR_NONE
                                        ? AF_INET
                                        : stricmp(Host,"localhost") == 0
                                          ? AF_INET      /* Try IPv4 first */
-                                         : AF_INET6,
+                                         : AF_UNSPEC,
   #else
                                    : AF_INET,
   #endif
