@@ -4,13 +4,15 @@
 
 # TSAR-MCP: Zero-Dependency C/C++ SDK for Edge AI
 
-**TSAR** stands for *"Tools Slightly Above the Runtime."* This SDK is a zero-dependency C/C++ framework for building Model Context Protocol (MCP) servers as native executables — without Python, Node.js, package managers, or background runtimes. The entire framework is a clean-room implementation — no third-party JSON parsers, no external runtime libraries.
+TSAR-MCP (Tools Slightly Above the Runtime) is a zero-dependency C/C++ toolkit for writing Model Context Protocol servers as native executables: one source file per tool, compiled directly to bare metal. An MCP server lets an AI assistant *do* things instead of only talking about them — read a file, check a process, query a system, run a command.
 
-While other C++ MCP SDKs focus on web-centric transports (HTTP, WebSockets, TCP), TSAR-MCP takes the opposite approach: pure `stdio`, paired with standard `ssh` for remote access. No open network ports. No TLS stack to manage. The OS security boundary is the security boundary.
+No Python. No Node.js. No package manager, no runtime to install — and no third-party libraries either: the JSON parser, the protocol engine, and the runtime are all clean-room implementations. It runs where your systems already run, including **AIX** and **IBM i (PASE)**, reached over nothing but `ssh`.
+
+TSAR-MCP opts for local `stdio` instead of web-centric transports. TSAR-MCP servers expose no inbound network ports — no TLS stack to manage, no open attack surface to monitor. Remote access is up to you via `ssh` or a proxy. While your tools can connect to whatever databases or sockets their jobs require, the framework’s built-in outbound features (spawning a local ACP agent or calling an external AI via `cURL`) remain strictly dormant until configured.
 
 That design makes it a practical fit for edge systems, legacy enterprise environments, air-gapped hosts, and any deployment where runtime bloat or exposed network ports are a liability.
 
-Because the framework targets standard OS primitives rather than a heavy runtime, it builds and runs across a wide platform range — from modern Linux and Windows to enterprise IBM systems. The full MCP server suite has been built with **IBM XL C/C++ (xlC)** and verified running natively on **AIX** and **IBM i (PASE)**, served to AI clients over nothing more than `ssh`.
+Because the framework targets standard OS primitives rather than a heavy runtime, it builds and runs across a wide platform range — from modern Linux and Windows to enterprise IBM systems.
 
 ## Getting Started
 
@@ -89,19 +91,23 @@ make -f Makefile.aix cleanall           # Removes the entire build directory
 
 TSAR-MCP is built around a simple native execution path: an MCP client sends JSON-RPC over `stdio`, the framework parses and validates it natively, dispatches the request into your aspect, and returns a well-formed response back to the client. There is no Python interpreter, no Node.js runtime, and no external protocol layer sitting between your tool logic and the operating system.
 
-* **Isolated JSON Transport:** The MCP protocol stream is kept separate from ordinary program output, so aspects can safely link in noisy third-party libraries without corrupting client/server communication.
-* **Protocol Compatibility:** Dual-lane transport supports both stateful and stateless MCP. The default is clamped to the stateful `2025-11-25` specification while `2026-07-28` support is offered as a Release Candidate. Releasing the clamp via compilation flags activates the new protocol while automatic negotiation preserves full backward compatibility with older clients.
-* **Native BNF Parsing Framework:** The `JSONParser` engine validates incoming JSON-RPC messages and tool payloads structurally before your aspect logic runs.
-* **Single-File Aspect Model:** New capabilities are typically added by implementing a small set of C or C++ hooks in one `.cpp` file, while the framework handles handshake, dispatch, and response shaping.
-* **Prompt polyfill:** Natively offers prompts as tools for agentic and LLM invocation (initiate `listPrompts` to wake LLM session awareness).
-* **The `CommonC` Foundation:** A robust, legacy-hardened C runtime that handles memory management, strings, and core utility services without external library bloat.
-* **Object-oriented `MCP` Patterns:** See the **[MCPServer Advanced Patterns Guide](./mcp/doc/MCPServer_AdvancedPatterns.md)** for `MCPAsyncWork` details.
+* **Stray Output Can't Break It (Isolated JSON Transport):** The AI talks to your server over `stdout`, so a single stray `printf` from some library you linked would normally corrupt the conversation and drop the connection. TSAR-MCP moves the real `stdout` out of the way and keeps the protocol on a private channel, so noisy third-party code cannot interfere.
+* **Works With Old and New Clients (Protocol Compatibility):** MCP has several published versions and clients are scattered across them. The server negotiates whichever one the client speaks, defaulting to the stable `2025-11-25` specification; a compile-time flag opens up the newer stateless `2026-07-28` protocol, which is still a Release Candidate.
+* **Slow Tools Don't Block (`MCPAsyncWork`):** A tool that takes thirty seconds would normally stall the entire server. This layer runs it on a worker thread, keeps the message loop answering, and lets the AI cancel it mid-flight. See the **[MCPServer Advanced Patterns Guide](./mcp/doc/MCPServer_AdvancedPatterns.md)**.
+* **Talking to Other AI Tools (JSON-RPC 2.0 Client):** Normally an MCP server only answers the AI client. This layer lets it start another program and hold a two-way conversation with it — so one TSAR-MCP server can use *other* MCP servers as tools, or drive a local coding agent over ACP. (`XCPClient` moves the lines, `RPCClient` matches replies to requests, `MCPClient` and `ACPClient` speak the protocols.) Sampling below is the first thing built on this, not the reason for it.
+* **Asking the AI a Question (Blocking Sampling):** Usually the AI calls your tool; sometimes your tool needs to ask the AI — *"is this spelled correctly?"*, *"summarize this log"*. `MCPSyncSamplerEx` makes that a single function call that waits for its answer, with no callbacks to wire up, and finds a model wherever one is available: the connected client's own, a local agent, or an external provider. Only the external one leaves your machine, which is why it is tried last.
+* **Bad Input Never Reaches Your Code (Native BNF Parsing):** Every incoming message is checked against a formal grammar before it is dispatched, so your tool is never handed malformed JSON to defend against.
+* **One File Per Tool (Single-File Aspect Model):** A new capability is one `.cpp` file filling in a handful of functions. The framework does the handshake, the dispatch, and the response shaping.
+* **Prompts That Work Everywhere (Prompt Polyfill):** MCP "prompts" are saved instructions a user can invoke by name, but many clients still do not support them. TSAR-MCP also offers them as ordinary tools — which every client supports — so your prompts work either way (`listPrompts`, `getPrompt`).
+* **The Runtime Predates the Protocol (`CommonC`):** "We wrote our own JSON parser" is usually a warning sign. This one is a grammar handed to an LR parser engine written in 1998 — the same engine that was chewing through high-frequency SQL in 2012. The threading layer dates to 2001. None of it was written for MCP; MCP is just the newest thing standing on it.
 
 ## Included Examples & Roadmap
 
 This repository includes the core SDK framework alongside target-specific MCP server implementations and standalone utilities to demonstrate the extensibility of the architecture:
 
 * **WordArt Generator ([`wordArt`](./mcp/servers/wordArt/MCPServer_wordArt.cpp)):** Demonstrates **bi-directional LLM-code integration** (MCP Sampling / MCP Multi-Round-Trip-Request). Rather than relying on native C string manipulation, this aspect dynamically prompts the client's LLM (`sampling/createMessage`) to generate styled ASCII art—showcasing the simplicity by which TSAR-MCP bridges the absolute deterministic safety of a native C runtime with the dynamic cognitive reasoning of modern AI.
+
+* **Universal Sampling ([`spellCheck`](./mcp/servers/spellCheck/MCPServer_spellCheck.cpp)):** Demonstrates `MCPSyncSamplerEx`, the hybrid blocking sampler. MCP sampling normally arrives as an asynchronous round trip the aspect must correlate and resume from a handler. `MCPSyncSamplerEx` turns it into a **blocking call on a worker thread**, so an aspect needing several completions issues them in sequence as ordinary straight-line code rather than a chain of callbacks. That same call is client-independent: where `wordArt` uses MCP sampling as the specification defines it, `spellCheck` works even against a client that does not implement sampling at all — falling through to a local agent over ACP, and failing that to an external AI provider. Cancellation reaches all four paths.
 
 * **TSAR-MCP Markdown Viewer ([`MarkdownViewer.html`](./tools/MarkdownViewer/MarkdownViewer.html)):** A self-contained, single-file HTML Markdown viewer. Running entirely in the browser to keep your documents private, it provides syntax highlighting, mathematical KaTeX rendering, a floating Table of Contents, and "save to HTML" and printing functionality. It is perfect for reading the architectural documents in this repository. **[▶ Open the live viewer](https://ibm.github.io/tsar-mcp/tools/MarkdownViewer/MarkdownViewer.html)**
 
@@ -127,6 +133,7 @@ This repository is structured as a chronological masterclass in building zero-de
 6. **Tag:** `mcp/stateless_rc/v2.3.0` - Introduces 2026-07-28 stateless protocol RC alongside process control (`popenNT`), generic REST utilities (`cURLRunner`), and custom lifecycle hooks (`NO_MAIN_MCP`).
 7. **Tag:** `mcp/aix_ibmi_port/v2.4.0` - Enterprise Platform Port: Adds native 64-bit IBM XL C/C++ (`xlC`) support for AIX and IBM i (PASE).
 8. **Tag:** `mcp/async_core/v2.5.0` - Introduces `MCPAsyncWork` for object-oriented background work-item dispatch and thread management.
+9. **Current (`main`):** JSON-RPC 2.0 Client Transport, ACP Agent Bridge, and Universal Sync Sampling Support. Not yet tagged — will become `mcp/sampling_client-bridge/v2.6.0`.
 
 Please see **[ARCHITECTURE_MILESTONES.md](./ARCHITECTURE_MILESTONES.md)** for detailed instructions on how to check out these historical baselines.
 
@@ -134,7 +141,7 @@ Please see **[ARCHITECTURE_MILESTONES.md](./ARCHITECTURE_MILESTONES.md)** for de
 
 > *This SDK has a story. When the architect asked an AI assistant to help build a helloWorld MCP server in C, the first response was: "That will be somewhat difficult — there are easier ways." The follow-up: "Why is it difficult??" The AI explained: JSON parsing, raw I/O, strict JSON-RPC back to the client. The reply was: "One moment, let me show you something" — and a battle-tested BNF JSON parser built a decade earlier for high-frequency SQL processing was attached. The AI read the header and immediately reversed course: "Oh, well then it's not so difficult." TSAR-MCP is what came next.*
 
-This repository is built upon the **TSAR** C-runtime—a legacy-hardened foundation originally designed in 2012 for high-frequency SQL processing (included here as `QueryTool`). By leveraging this battle-tested bedrock, the modern MCP AI aspects inherit enterprise-grade memory management, native BNF parsing engines, and steady performance, while leaving the framework architecture completely open for future bare-metal utilities.
+This repository is built upon the **TSAR** C-runtime — *"Tools Slightly Above the Runtime"* — a foundation whose LR parser engine dates to 1998 and whose threading layer to 2001, hardened through a decade of high-frequency SQL processing (included here as `QueryTool`). By leveraging this battle-tested bedrock, the modern MCP AI aspects inherit enterprise-grade memory management, native BNF parsing engines, and steady performance, while leaving the framework architecture completely open for future bare-metal utilities.
 
 ### 🏛️ Legacy Origins: The SourceForge Query Tool
 For those interested in exploring the original 2012 architecture before the MCP AI integrations, the pristine initial import from the legacy SourceForge repository has been preserved in the project history. 

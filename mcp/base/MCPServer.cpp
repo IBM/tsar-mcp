@@ -26,6 +26,7 @@
         #include <process.h>
         #define isatty _isatty
         #define EOFSequence "^Z"
+        #define MCPSleepMS(ms) Sleep(ms)
 #else
         #include <fcntl.h>
         #include <unistd.h>
@@ -33,6 +34,7 @@
                 #define stricmp strcasecmp
         #endif
         #define EOFSequence "^D"
+        #define MCPSleepMS(ms) usleep((ms)*1000)
 #endif
 
 #include <ASThread.h>
@@ -54,6 +56,9 @@
 #ifndef ReadSTDIN_MCPMessage_MAXSIZE
         #define ReadSTDIN_MCPMessage_MAXSIZE (20*1024*1024)
 #endif
+
+#define MCPReaderExitPollMS 10          // Reader shutdown poll interval.
+#define MCPReaderExitWaitMS 1000        // ...and how long to bother to wait.
 
 static bool MCPJSONTrace = false;               // Trace JSON from/to client.
 
@@ -272,7 +277,7 @@ char* ReadSTDIN_MCPMessage(FILE *in)    // "getline()" - reads until EOL.
                 // --- Read until Newline ----
                 // ---------------------------
                 char *Pos = Buffer + Used;
-                char *readBuffer = fgets(Pos,BufferSize-Used,in);
+                char *readBuffer = fgets(Pos,(int)(BufferSize-Used),in);
                 if (!readBuffer)
                         {
                         if (feof(in)) TDEBUG(("%s: fgets() - EOF",ProcName));
@@ -357,6 +362,7 @@ void (*DeinitMCPSampleHook)() = NULL;
 // -----------------------------------------------
 
 void (*OnStartupMCPSampleExHook)() = NULL;
+void (*OnShutdownMCPSampleExHook)() = NULL;
 
 // -----------------------------------------------
 // ---- MCP MRTR Extension (Internal Hooks) ----
@@ -3506,8 +3512,20 @@ static bool _RunMCPServer(bool TestMode)
                         }
                 else    {
                         int rc = MCPServerMain.Run(stdin,stdoutMask.clientout);
+                        // ---------------------------------------
+                        // Allow the reader time to exit, but kill 
+                        // its thread if it's stuck in an fgets().
+                        // ---------------------------------------
+                        unsigned Waited = 0;
+                        while (MCPServerReader.IsStarted() &&
+                               Waited < MCPReaderExitWaitMS)
+                                {
+                                MCPSleepMS(MCPReaderExitPollMS);
+                                Waited += MCPReaderExitPollMS;
+                                }
                         if (MCPServerReader.IsStarted()) 
                                 {
+                                TERROR(("MCPServerReader hung..."));
                                 MCPServerReader.Kill(true);
                                 }
                         Status = rc == 0;
@@ -3684,6 +3702,7 @@ int main_mcp()
                 if (DeinitMCPAsyncHook) DeinitMCPAsyncHook();
                 if (DeinitMCPSampleHook) DeinitMCPSampleHook();
                 if (OnShutdownMRTRHook) OnShutdownMRTRHook();
+                if (OnShutdownMCPSampleExHook) OnShutdownMCPSampleExHook();
                 MCPServer_OnShutdown();
                 }
         MCPServerMain.ClearQueue();

@@ -1051,7 +1051,7 @@ int SocketCtrlBlock::SendTo(const socketCBaddr &Address,
                 {
                 if (SkipIPHeader)               // For SOCK_RAW sockets.
                         {
-                        assert(Size >= SkipIPv4HeaderLEN);
+                        assert(Size >= (int)SkipIPv4HeaderLEN);
                         Buffer += SkipIPv4HeaderLEN;
                         Size -= SkipIPv4HeaderLEN;
                         }

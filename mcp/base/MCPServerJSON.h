@@ -28,6 +28,7 @@
 #include <time.h>
 
 #include <JSONObject.h>
+#include <MEMprintf.h>
 
 // ******************************
 // **** MCP Protocol Version ****
@@ -61,7 +62,8 @@ class MCPInputRequest
                 JSON_Value* Get_id();
                 const char* Get_method();
                 JSON_Object* Get_params();
-                JSON_Object* Get_result();
+                JSON_Object* Get_result();  // A response has either a result,
+                JSON_Object* Get_error();   // or when NULL, then an error.
                 JSON_Value* Get_param(const char *Key);
                 MCPInputRequest& operator =(MCPInputRequest &Source);
                 // ----------------------------------

@@ -30,7 +30,9 @@ CFG = Release
 COMMONC_DIR = ../base/CommonC
 JSONPARSER_DIR = ../parsers/JSONParser
 PARSER_DIR = ../base/Parser
+AICURL_DIR = ../base/AIcURL
 MCPBASE_DIR = base
+CLIENT_DIR = client
 MCPSRV_DIR = servers
 
 # --- Build Output ---
@@ -59,6 +61,8 @@ CXXFLAGS = $(CXXFLAGS_BASE) $(CXXFLAGS_CFG)
 INC_COMMONC = -I"$(COMMONC_DIR)"
 INC_PARSER  = -I"$(COMMONC_DIR)" -I"$(PARSER_DIR)"
 INC_CORE    = -I"$(COMMONC_DIR)" -I"$(JSONPARSER_DIR)" -I"$(PARSER_DIR)" -I"$(MCPBASE_DIR)"
+# MCPSampleEx.h pulls in AIcURL.h and ACPSyncSampler.h (angle-bracket includes).
+INC_SAMPLEEX = -I"$(AICURL_DIR)" -I"$(CLIENT_DIR)"
 
 # --- Linker Flags ---
 # -lpthread : POSIX threads (AIX). dlopen/dlsym live in libc, so no -ldl.
@@ -81,6 +85,28 @@ CORE_OBJS = \
 # Add $(ASYNC_OBJS) to the link rule of an aspect that derives MCPAsyncWork.
 ASYNC_OBJS = \
     $(O)/MCPServerAsync.o
+
+# Optional: JSON-RPC 2.0 client (XCPClient -> RPCClient -> ACPClient).
+CLIENT_OBJS = \
+    $(O)/XCPClient.o \
+    $(O)/RPCClient.o \
+    $(O)/ACPClient.o \
+    $(O)/ACPSyncSampler.o
+
+# Optional: MCP sampling (see MCPSampleCore.h) and the 2026-07-28 MRTR engine
+# (MCPServerMRTR self-registers its hook: linking the object is sufficient).
+SAMPLING_OBJS = \
+    $(O)/MCPServerSample.o
+
+MRTR_OBJS = \
+    $(O)/MCPServerMRTR.o
+
+# Optional: MCPSyncSamplerEx, the blocking hybrid sampler (MCP / ACP / cURL).
+# Add $(SAMPLING_OBJS) $(MRTR_OBJS) $(ASYNC_OBJS) with it.
+SAMPLEEX_OBJS = \
+    $(O)/MCPSampleEx.o \
+    $(O)/AIcURL.o \
+    $(CLIENT_OBJS)
 
 COMMONC_OBJS = \
     $(O)/ASThread.o \
@@ -126,6 +152,7 @@ ASPECTS = \
     $(OUTDIR)/MCPServer_netstat \
     $(OUTDIR)/MCPServer_portScan \
     $(OUTDIR)/MCPServer_setReminder \
+    $(OUTDIR)/MCPServer_spellCheck \
     $(OUTDIR)/MCPServer_wordArt
 
 # Top-level dispatch: recurse with config-appropriate flags. This emulates the
@@ -149,6 +176,8 @@ portScan:
 	$(MAKE) -f Makefile.aix _makedirs $(OUTDIR)/MCPServer_portScan CFG=$(CFG) CXXFLAGS_CFG="$(CXXFLAGS_CFG)"
 setReminder:
 	$(MAKE) -f Makefile.aix _makedirs $(OUTDIR)/MCPServer_setReminder CFG=$(CFG) CXXFLAGS_CFG="$(CXXFLAGS_CFG)"
+spellCheck:
+	$(MAKE) -f Makefile.aix _makedirs $(OUTDIR)/MCPServer_spellCheck CFG=$(CFG) CXXFLAGS_CFG="$(CXXFLAGS_CFG)"
 wordArt:
 	$(MAKE) -f Makefile.aix _makedirs $(OUTDIR)/MCPServer_wordArt CFG=$(CFG) CXXFLAGS_CFG="$(CXXFLAGS_CFG)"
 
@@ -177,6 +206,9 @@ $(OUTDIR)/MCPServer_portScan: $(SHARED_OBJS) $(COMMONC_NET_OBJS) $(O)/MCPServer_
 $(OUTDIR)/MCPServer_setReminder: $(SHARED_OBJS) $(COMMONC_TIMER_OBJS) $(O)/MCPServer_setReminder.o
 	$(CXX) $(LDFLAGS) $(SHARED_OBJS) $(COMMONC_TIMER_OBJS) $(O)/MCPServer_setReminder.o -o $@ $(LIBS)
 
+$(OUTDIR)/MCPServer_spellCheck: $(SHARED_OBJS) $(ASYNC_OBJS) $(SAMPLING_OBJS) $(SAMPLEEX_OBJS) $(MRTR_OBJS) $(O)/MCPServer_spellCheck.o
+	$(CXX) $(LDFLAGS) $(SHARED_OBJS) $(ASYNC_OBJS) $(SAMPLING_OBJS) $(SAMPLEEX_OBJS) $(MRTR_OBJS) $(O)/MCPServer_spellCheck.o -o $@ $(LIBS)
+
 $(OUTDIR)/MCPServer_wordArt: $(SHARED_OBJS) $(O)/MCPServer_wordArt.o
 	$(CXX) $(LDFLAGS) $(SHARED_OBJS) $(O)/MCPServer_wordArt.o -o $@ $(LIBS)
 
@@ -193,6 +225,28 @@ $(O)/MCPServerJSON.o: $(MCPBASE_DIR)/MCPServerJSON.cpp
 	$(CXX) $(CXXFLAGS) $(INC_CORE) -c $(MCPBASE_DIR)/MCPServerJSON.cpp -o $@
 $(O)/MCPServerAsync.o: $(MCPBASE_DIR)/MCPServerAsync.cpp
 	$(CXX) $(CXXFLAGS) $(INC_CORE) -c $(MCPBASE_DIR)/MCPServerAsync.cpp -o $@
+
+# --- MCP sampling (MCPServerSample.cpp, MCPServerMRTR.cpp, MCPSampleEx.cpp) ---
+$(O)/MCPServerSample.o: $(MCPBASE_DIR)/MCPServerSample.cpp
+	$(CXX) $(CXXFLAGS) $(INC_CORE) $(INC_SAMPLEEX) -c $(MCPBASE_DIR)/MCPServerSample.cpp -o $@
+$(O)/MCPServerMRTR.o: $(MCPBASE_DIR)/MCPServerMRTR.cpp
+	$(CXX) $(CXXFLAGS) $(INC_CORE) $(INC_SAMPLEEX) -c $(MCPBASE_DIR)/MCPServerMRTR.cpp -o $@
+$(O)/MCPSampleEx.o: $(MCPBASE_DIR)/MCPSampleEx.cpp
+	$(CXX) $(CXXFLAGS) $(INC_CORE) $(INC_SAMPLEEX) -c $(MCPBASE_DIR)/MCPSampleEx.cpp -o $@
+
+# --- AIcURL ---
+$(O)/AIcURL.o: $(AICURL_DIR)/AIcURL.cpp
+	$(CXX) $(CXXFLAGS) $(INC_CORE) $(INC_SAMPLEEX) -c $(AICURL_DIR)/AIcURL.cpp -o $@
+
+# --- JSON-RPC 2.0 client (client/) ---
+$(O)/XCPClient.o: $(CLIENT_DIR)/XCPClient.cpp
+	$(CXX) $(CXXFLAGS) $(INC_CORE) $(INC_SAMPLEEX) -c $(CLIENT_DIR)/XCPClient.cpp -o $@
+$(O)/RPCClient.o: $(CLIENT_DIR)/RPCClient.cpp
+	$(CXX) $(CXXFLAGS) $(INC_CORE) $(INC_SAMPLEEX) -c $(CLIENT_DIR)/RPCClient.cpp -o $@
+$(O)/ACPClient.o: $(CLIENT_DIR)/ACPClient.cpp
+	$(CXX) $(CXXFLAGS) $(INC_CORE) $(INC_SAMPLEEX) -c $(CLIENT_DIR)/ACPClient.cpp -o $@
+$(O)/ACPSyncSampler.o: $(CLIENT_DIR)/ACPSyncSampler.cpp
+	$(CXX) $(CXXFLAGS) $(INC_CORE) $(INC_SAMPLEEX) -c $(CLIENT_DIR)/ACPSyncSampler.cpp -o $@
 
 # --- CommonC (-I CommonC only, matching GNU Makefile) ---
 $(O)/ASThread.o: $(COMMONC_DIR)/ASThread.cpp
@@ -255,5 +309,7 @@ $(O)/MCPServer_portScan.o: $(MCPSRV_DIR)/portScan/MCPServer_portScan.cpp
 	$(CXX) $(CXXFLAGS) $(INC_CORE) -c $(MCPSRV_DIR)/portScan/MCPServer_portScan.cpp -o $@
 $(O)/MCPServer_setReminder.o: $(MCPSRV_DIR)/setReminder/MCPServer_setReminder.cpp
 	$(CXX) $(CXXFLAGS) $(INC_CORE) -c $(MCPSRV_DIR)/setReminder/MCPServer_setReminder.cpp -o $@
+$(O)/MCPServer_spellCheck.o: $(MCPSRV_DIR)/spellCheck/MCPServer_spellCheck.cpp
+	$(CXX) $(CXXFLAGS) $(INC_CORE) $(INC_SAMPLEEX) -c $(MCPSRV_DIR)/spellCheck/MCPServer_spellCheck.cpp -o $@
 $(O)/MCPServer_wordArt.o: $(MCPSRV_DIR)/wordArt/MCPServer_wordArt.cpp
 	$(CXX) $(CXXFLAGS) $(INC_CORE) -c $(MCPSRV_DIR)/wordArt/MCPServer_wordArt.cpp -o $@

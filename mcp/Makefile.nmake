@@ -46,7 +46,9 @@ CFG=Release
 COMMONC_DIR    = ..\base\CommonC
 JSONPARSER_DIR = ..\parsers\JSONParser
 PARSER_DIR     = ..\base\Parser
+AICURL_DIR     = ..\base\AIcURL
 MCPBASE_DIR    = base
+CLIENT_DIR     = client
 MCPSRV_DIR     = servers
 
 # --- Build Output ---
@@ -75,6 +77,8 @@ CFLAGS = $(CFLAGS_BASE) $(CFLAGS_CFG)
 
 # Include sets
 INC_CORE = /I "$(COMMONC_DIR)" /I "$(JSONPARSER_DIR)" /I "$(PARSER_DIR)" /I "$(MCPBASE_DIR)"
+# MCPSampleEx.h pulls in AIcURL.h and ACPSyncSampler.h (angle-bracket includes).
+INC_SAMPLEEX = /I "$(AICURL_DIR)" /I "$(CLIENT_DIR)"
 
 # --- Linker Flags ---
 
@@ -101,6 +105,31 @@ CORE_OBJS = \
 
 ASYNC_OBJS = \
     $(O)\MCPServerAsync.obj
+
+# --- JSON-RPC 2.0 client (optional): XCPClient -> RPCClient -> ACPClient ---
+
+CLIENT_OBJS = \
+    $(O)\XCPClient.obj \
+    $(O)\RPCClient.obj \
+    $(O)\ACPClient.obj \
+    $(O)\ACPSyncSampler.obj
+
+# --- MCP sampling (optional, see MCPSampleCore.h) and the 2026-07-28 MRTR ---
+# --- engine (MCPServerMRTR self-registers: linking the object suffices)   ---
+
+SAMPLING_OBJS = \
+    $(O)\MCPServerSample.obj
+
+MRTR_OBJS = \
+    $(O)\MCPServerMRTR.obj
+
+# --- MCPSyncSamplerEx, the blocking hybrid sampler (MCP / ACP / cURL) ---
+# Add $(SAMPLING_OBJS) $(MRTR_OBJS) $(ASYNC_OBJS) with it.
+
+SAMPLEEX_OBJS = \
+    $(O)\MCPSampleEx.obj \
+    $(O)\AIcURL.obj \
+    $(CLIENT_OBJS)
 
 # --- CommonC ---
 
@@ -154,6 +183,7 @@ ASPECTS = \
     $(OUTDIR)\MCPServer_netstat.exe \
     $(OUTDIR)\MCPServer_portScan.exe \
     $(OUTDIR)\MCPServer_setReminder.exe \
+    $(OUTDIR)\MCPServer_spellCheck.exe \
     $(OUTDIR)\MCPServer_wordArt.exe
 
 all: _makedirs $(ASPECTS)
@@ -163,6 +193,7 @@ helloWorld:   _makedirs $(OUTDIR)\MCPServer_helloWorld.exe
 netstat:      _makedirs $(OUTDIR)\MCPServer_netstat.exe
 portScan:     _makedirs $(OUTDIR)\MCPServer_portScan.exe
 setReminder:  _makedirs $(OUTDIR)\MCPServer_setReminder.exe
+spellCheck:   _makedirs $(OUTDIR)\MCPServer_spellCheck.exe
 wordArt:      _makedirs $(OUTDIR)\MCPServer_wordArt.exe
 
 _makedirs:
@@ -206,6 +237,13 @@ $(OUTDIR)\MCPServer_setReminder.exe: $(SHARED_OBJS) $(COMMONC_TIMER_OBJS) $(O)\M
     $(LINK) $(LDFLAGS) /OUT:$@ $** $(LIBS)
 
 #
+# spellCheck: core + shared + async + sampling + sampleEx (AIcURL, client) + mrtr
+#
+
+$(OUTDIR)\MCPServer_spellCheck.exe: $(SHARED_OBJS) $(ASYNC_OBJS) $(SAMPLING_OBJS) $(SAMPLEEX_OBJS) $(MRTR_OBJS) $(O)\MCPServer_spellCheck.obj
+    $(LINK) $(LDFLAGS) /OUT:$@ $** $(LIBS)
+
+#
 # wordArt: core + shared
 #
 
@@ -228,9 +266,18 @@ $(OUTDIR)\MCPServer_wordArt.exe: $(SHARED_OBJS) $(O)\MCPServer_wordArt.obj
 {$(PARSER_DIR)\}.cpp{$(O)\}.obj:
     $(CC) $(CFLAGS) /I "$(COMMONC_DIR)" /I "$(PARSER_DIR)" /Fo$@ $<
 
-# MCP base (MCPServer.cpp, MCPServerJSON.cpp, MCPServerAsync.cpp)
+# MCP base (MCPServer.cpp, MCPServerJSON.cpp, MCPServerAsync.cpp,
+#           MCPServerSample.cpp, MCPServerMRTR.cpp, MCPSampleEx.cpp)
 {$(MCPBASE_DIR)\}.cpp{$(O)\}.obj:
-    $(CC) $(CFLAGS) $(INC_CORE) /Fo$@ $<
+    $(CC) $(CFLAGS) $(INC_CORE) $(INC_SAMPLEEX) /Fo$@ $<
+
+# AIcURL
+{$(AICURL_DIR)\}.cpp{$(O)\}.obj:
+    $(CC) $(CFLAGS) $(INC_CORE) $(INC_SAMPLEEX) /Fo$@ $<
+
+# JSON-RPC 2.0 client (XCPClient, RPCClient, ACPClient, ACPSyncSampler, MCPClient)
+{$(CLIENT_DIR)\}.cpp{$(O)\}.obj:
+    $(CC) $(CFLAGS) $(INC_CORE) $(INC_SAMPLEEX) /Fo$@ $<
 
 # MCP servers - helloWorld
 {$(MCPSRV_DIR)\helloWorld\}.cpp{$(O)\}.obj:
@@ -247,6 +294,10 @@ $(OUTDIR)\MCPServer_wordArt.exe: $(SHARED_OBJS) $(O)\MCPServer_wordArt.obj
 # MCP servers - setReminder
 {$(MCPSRV_DIR)\setReminder\}.cpp{$(O)\}.obj:
     $(CC) $(CFLAGS) $(INC_CORE) /Fo$@ $<
+
+# MCP servers - spellCheck
+{$(MCPSRV_DIR)\spellCheck\}.cpp{$(O)\}.obj:
+    $(CC) $(CFLAGS) $(INC_CORE) $(INC_SAMPLEEX) /Fo$@ $<
 
 # MCP servers - wordArt
 {$(MCPSRV_DIR)\wordArt\}.cpp{$(O)\}.obj:

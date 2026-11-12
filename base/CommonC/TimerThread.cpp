@@ -12,47 +12,58 @@
 
 #ifndef _WIN32
         #include <unistd.h>
-	#include <sys/socket.h>
-	#include <sys/types.h>
-#endif
-
-#ifdef __OS400_TGTVRM__ /* iSeries */
-
+        #include <sys/types.h>
         #include <sys/time.h>
-
-struct timeb 
-        {
-        time_t time;
-        unsigned short millitm;
-        short timezone;
-        short dstflag;
-        };
-
-static void ftime(struct timeb *Timeb)
-        {
-        struct timeval time;
-        struct timezone timez;
-        gettimeofday(&time, &timez);
-        Timeb->time = time.tv_sec;
-        Timeb->millitm = time.tv_usec / 1000;
-        Timeb->timezone = timez.tz_minuteswest;
-        Timeb->dstflag = timez.tz_dsttime;
-        return;
-        }
-
-#else
-
-        #include <sys/timeb.h>
-
-#endif /* !iSeries */
-
-#include <assert.h>
+        #include <time.h>
+#endif
 
 #include <LevelTrace.h>
 #include <TimerThread.h>
 
+// ********************************************
+// **** Clock change (eg NTP) safe "ftime" ****
+// ********************************************
+
+struct TTtimeb 
+        {
+        Ltime_t time;
+        unsigned short millitm;
+        };
+
+static void TTftime(struct TTtimeb *Timeb)
+        {
+  #ifdef _WIN32
+    #if defined(_MSC_VER) && (_MSC_VER <= 1200)
+        DWORD ms = GetTickCount();
+    #else
+        ULONGLONG ms = GetTickCount64();
+    #endif
+        Timeb->time = (Ltime_t)(ms / 1000);
+        Timeb->millitm = (unsigned short)(ms % 1000);
+  #else
+    #if defined(CLOCK_MONOTONIC)
+        struct timespec ts;
+        if (clock_gettime(CLOCK_MONOTONIC, &ts) == 0)
+                {
+                Timeb->time = (Ltime_t)ts.tv_sec;
+                Timeb->millitm = (unsigned short)(ts.tv_nsec / 1000000);
+                return;
+                }
+    #endif
+        struct timeval time;
+        gettimeofday(&time, NULL);
+        Timeb->time = (Ltime_t)time.tv_sec;
+        Timeb->millitm = (unsigned short)(time.tv_usec / 1000);
+  #endif
+        return;
+        }
+
 #define timebToMS(CurrentTime)                                               \
         (CurrentTime.time * (Ltime_t)1000 + CurrentTime.millitm)
+
+// ***************************************************************************
+// **** TimerThread **********************************************************
+// ***************************************************************************
 
 struct KillTimerINFO : public TimerMessage
         {
@@ -69,12 +80,10 @@ struct KillTimerINFO : public TimerMessage
 
 static int TimerThread_ShutdownMSG;     // Fixed address is the message.
 
-static Mutex IdleKillMutex;     // Serializes the stopped-Timer sweep.
-
 TimerThread::TimerThread()
         {
-        timeb CurrentTime;
-        ftime(&CurrentTime);
+        TTtimeb CurrentTime;
+        TTftime(&CurrentTime);
         StartupTimeMS = timebToMS(CurrentTime);
         return;
         }
@@ -101,8 +110,9 @@ void TimerThread::AddTimerItem(TimerItem *Item)
         return;         
         }
 
-void TimerThread::Clear()       // Call only from thread or when stoped.
+void TimerThread::Clear()       // Call only from thread or when stopped.
         {
+        KillMutex.Take();
         TimerItem *Current;
         // *********************
         // **** Clear Queue ****
@@ -142,10 +152,11 @@ void TimerThread::Clear()       // Call only from thread or when stoped.
                 delete Current;
                 Current = TimerList.GetFirst();
                 }
+        KillMutex.Release();
         return;         
         }
 
-void TimerThread::KillQueueTimers(MessageQueueIF *Queue)  // ThreadMain only.
+void TimerThread::KillQueueTimers(MessageQueueIF *Queue)
         {
         TimerItem *Current = TimerList.GetFirst();
         while (Current)
@@ -210,16 +221,14 @@ bool TimerThread::KillTimers(MessageQueueIF &Queue)
         // --------------------------------------------------
         if (!IsStarted())
                 {
-                // -------------------------------------------------------
-                // Nobody would answer a queued request -- but nobody is
-                // consuming TimerQueue or walking TimerList either, so
-                // the caller can safely do the thread's own two steps:
-                // absorb what was sent, then sweep the list.
-                // -------------------------------------------------------
-                IdleKillMutex.Take();
+                // ---------------------------------------------------
+                // Thread is stopped: serialize with Clear() and other
+                // callers, absorb queued items, and sweep the list.
+                // ---------------------------------------------------
+                KillMutex.Take();
                 AbsorbTimerQueue();
                 KillQueueTimers(&Queue);
-                IdleKillMutex.Release();
+                KillMutex.Release();
                 return true;
                 }
         KillTimerINFO Request(Queue);
@@ -243,18 +252,23 @@ bool TimerThread::SetTimer(MessageQueueIF &Queue,
                            void *MessageToPost,
                            unsigned TimeoutMS)
         {
-        timeb CurrentTime;
+        TTtimeb CurrentTime;
         Ltime_t CurrentTimeMS;
-        unsigned ElapsedTimeMS;
+        Ltime_t ElapsedTimeMS;
         TimerItem *Item = new TimerItem;
         if (!Item) return false;
         Item->MessageToPost = MessageToPost;
         Item->Queue = &Queue;
-        ftime(&CurrentTime);
+        TTftime(&CurrentTime);
         CurrentTimeMS = timebToMS(CurrentTime);
-        ElapsedTimeMS = (unsigned)(CurrentTimeMS - StartupTimeMS);
+        ElapsedTimeMS = CurrentTimeMS - StartupTimeMS;
         Item->EventTimeMS = TimeoutMS + ElapsedTimeMS;
-        return TimerQueue.Send(Item);
+        bool Status = TimerQueue.Send(Item);
+        if (!Status)
+                {
+                delete Item;
+                }
+        return Status;
         }
 
 bool TimerThread::Stop(bool WaitToEnd)
@@ -270,9 +284,9 @@ bool TimerThread::Stop(bool WaitToEnd)
 
 int TimerThread::ThreadMain()
         {
-        timeb CurrentTime;
+        TTtimeb CurrentTime;
         Ltime_t CurrentTimeMS;
-        unsigned ElapsedTimeMS;
+        Ltime_t ElapsedTimeMS;
         void *AddMsg = NULL;
         while (1)
                 {
@@ -317,14 +331,14 @@ int TimerThread::ThreadMain()
                 // ----------------------------------
                 // ---- Wait for Timeout or Work ----
                 // ----------------------------------
-                ftime(&CurrentTime);
+                TTftime(&CurrentTime);
                 CurrentTimeMS = timebToMS(CurrentTime);
-                ElapsedTimeMS = (unsigned)(CurrentTimeMS - StartupTimeMS);
+                ElapsedTimeMS = CurrentTimeMS - StartupTimeMS;
                 if (ElapsedTimeMS < Current->EventTimeMS)
                         {
-                        unsigned TimeoutMS;
+                        Ltime_t TimeoutMS;
                         TimeoutMS = Current->EventTimeMS - ElapsedTimeMS;
-                        AddMsg = TimerQueue.Receive(TimeoutMS);
+                        AddMsg = TimerQueue.Receive((unsigned)TimeoutMS);
                         if (AddMsg) continue;
                         }
                 Current->Queue->Send(Current->MessageToPost);

@@ -422,13 +422,14 @@ Condition::~Condition()
 bool Condition::Take(unsigned TimeoutMS)
         {
         struct timeval timev;
-        struct timezone timez;
         struct timespec Timeout;
         unsigned TimeoutSEC = TimeoutMS / 1000;
-        unsigned TimeoutNSEC = (TimeoutMS % 1000) * 1000000; 
-        gettimeofday(&timev,&timez);
+        unsigned TimeoutNSEC = (TimeoutMS % 1000) * 1000000;
+        gettimeofday(&timev,NULL);
         Timeout.tv_sec = timev.tv_sec + TimeoutSEC;
         Timeout.tv_nsec = timev.tv_usec * 1000 + TimeoutNSEC;
+        Timeout.tv_sec += Timeout.tv_nsec / 1000000000;
+        Timeout.tv_nsec %= 1000000000;
         int rc = pthread_cond_timedwait(&hCondition,
                                         &ConditionMutex.hMutex,
                                         &Timeout);

@@ -39,7 +39,7 @@ struct TimerMessage : public Link
 
 struct TimerItem : public TimerMessage
         {
-        unsigned EventTimeMS;
+        Ltime_t EventTimeMS;
         MessageQueueIF *Queue;
         void *MessageToPost;
         TimerItem() : TimerMessage(TimerMsgKind_Item) {}
@@ -50,6 +50,7 @@ DefineLinkList(TimerItemList,TimerItem);
 class TimerThread : public ASThread
         {
         private:
+                Mutex KillMutex;
                 Ltime_t StartupTimeMS;
                 TimerItemList TimerList;
                 MessageQueue TimerQueue;
@@ -77,7 +78,7 @@ class TimerThread : public ASThread
               - OnMessageDestruct()
 
                         Called at Stop(true) or Timer destruction for each 
-                        queued timer. It is up to the application to determin
+                        queued timer. It is up to the application to determine
                         how to cleanup, forward or ignore the messages,
 
                    ==>  If a derived class redefines OnMessageDestruct() then
@@ -104,9 +105,8 @@ class TimerThread : public ASThread
                         object owning 'Queue'. By the time a base
                         destructor runs, the derived part is already gone.
 
-                   ==>  Safe whether or not the TimerThread is running.
-                        Stopped, there is no consumer to race with, so
-                        the sweep is performed in the calling thread.
+                   ==>  Safe whether or not the TimerThread is running. When
+                        stopped the sweep is performed in the calling thread.
 
               - Stop(flag WaitToEnd)
 
@@ -146,7 +146,7 @@ bool HelloWorldThread::OnMessage(void *Message)
 main() 
 	{
         HelloWorldThread HelloWorld;
-        TimerThread Timer(1000);
+        TimerThread Timer;
         HelloWorld.Start();
         Timer.Start();
 

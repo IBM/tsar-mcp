@@ -10,13 +10,14 @@ The framework (`MCPServer.cpp`) handles all JSON-RPC protocol mechanics — pars
 
 ## Reference Templates
 
-When building a new aspect, start by copying one of our baseline templates depending on the architecture you need:
+Start by copying the template that matches your tool's execution and AI requirements:
 
-* **Baseline Tool (`MCPServer_helloWorld.cpp`):** A minimal, working aspect for standard tool execution. Start here if your tool just needs to execute local C code and return text sequentially.
-
-* **Asynchronous Background Processing (`MCPServer_setReminder.cpp`):** Start here if your tool requires non-blocking execution (like long-running jobs or delayed events). It demonstrates how to set `MCPServer_Asynchronous = true`, spawn background threads, and safely send notifications back to the client long after the initial request has finished.
-
-* **Bi-directional LLM-code integration aspect (`MCPServer_wordArt.cpp`):** Start here if you are building tools that need to natively query the client's AI. It demonstrates how to use the classic MCP Sampling flow (`sampling/createMessage`) and the modern stateless MRTR flow (`input_required`) to delegate tasks (like cognitive reasoning or complex formatting) back to an LLM.
+- **Sequential Tool ([`MCPServer_helloWorld.cpp`](../servers/helloWorld/MCPServer_helloWorld.cpp)):** Simple, synchronous C/C++ logic that returns a result immediately.
+- **Network & Sockets ([`MCPServer_portScan.cpp`](../servers/portScan/MCPServer_portScan.cpp)):** Sequential local socket operations and structured status reporting.
+- **Raw Async & Notifications ([`MCPServer_setReminder.cpp`](../servers/setReminder/MCPServer_setReminder.cpp)):** Minimal background threads (`MCPServer_Asynchronous = true`) and sending delayed client notifications via `PostNotifyAction()`. For production code, prefer the `MCPAsyncWork` threading model.
+- **Async Process & Cancellation ([`MCPServer_netstat.cpp`](../servers/netstat/MCPServer_netstat.cpp)):** Transparent background processing using `MCPAsyncWork` and `AbortWork()` / `pabortNT()` to kill slow OS commands on MCP cancel requests.
+- **Client-Native Sampling ([`MCPServer_wordArt.cpp`](../servers/wordArt/MCPServer_wordArt.cpp)):** Delegating formatting or reasoning directly to the connected client's LLM via MCP sampling or 2026-07-28 MRTR round trips. For production code, prefer the `MCPSyncSamplerEx` sampling model.
+- **Full-Stack Hybrid Sampling ([`MCPServer_spellCheck.cpp`](../servers/spellCheck/MCPServer_spellCheck.cpp)):** Utilizes the entire TSAR-MCP feature suite (`MCPAsyncWork` + `MCPSyncSamplerEx`), letting worker threads make LLM calls across client sampling, MRTR, local ACP agents (e.g., IBM Bob), or cURL using straight-forward sequential programming.
 
 ## Required Sections (in order)
 
@@ -73,6 +74,7 @@ bool MCPServer_OnStartup()
         {
         // Called once at process startup, before the message loop.
         // Register advanced hooks and always-on setup here.
+        // Handle_tools_call_hook = myAspect_tools_call_hook;
         return true;            // Return false to abort startup.
         }
 
@@ -173,21 +175,41 @@ char* Handle_tools_call(JSON_Value &idRequest,
         return MCPOutput;       // NULL = "unknown tool" (framework handles).
         }
 ```
+Note: For asynchronous tools (worker threads), dispatch your work item via Begin_AsyncWork() and return Return_MCPOutput_Pending(). See the Advanced Native Features section below and the **[MCPServer Advanced Patterns Guide](./mcp/doc/MCPServer_AdvancedPatterns.md)** for full examples.
 
 ### 7. Dormant Handlers
 
-These are required by the linker. Copy them verbatim from `MCPServer_helloWorld.cpp` and activate as needed:
+These are required by the linker. Copy them verbatim from `MCPServer_helloWorld.cpp` (or `MCPServer_spellCheck.cpp`) and activate as needed:
 
 ```cpp
+// -----------------------------------------
+// ---- Tools, notifications, responses ----
+// -----------------------------------------
 void Handle_notification(MCPInputRequest &MCPRequest) { return; }
 char* Handle_sampling_response(MCPInputRequest &MCPRequest) { return NULL; }
 char* Handle_tools_call_resume(MCPInputRequest &MCPRequest) { return NULL; }
 char* Handle_notify_action(void *UserPtr) { return NULL; }
 void Discard_notify_action(void *UserPtr) { return; }
+// -----------------
+// ---- Prompts ----
+// -----------------
 char* Handle_completion_complete(JSON_Value &idRequest, const char *RefType, const char *RefName, const char *ArgName, const char *ArgValue) { return NULL; }
 const unsigned MCPPromptInfoCount = 0;
 MCPPromptInfo_t MCPPromptInfo[] = { {0} };
 char* Handle_prompts_get(JSON_Value &idRequest, const char *PromptName, JSON_Object &Arguments) { return NULL; }
+// -------------------
+// ---- Resources ----
+// -------------------
+const unsigned MCPResourceInfoCount = 0;
+MCPResourceInfo_t MCPResourceInfo[] = { {0} };
+const unsigned MCPResourceTemplateInfoCount = 0;
+MCPResourceTemplateInfo_t MCPResourceTemplateInfo[] = { {0} };
+char* Handle_resources_read(JSON_Value &idRequest, const char *URI) { return NULL; }
+char* Handle_resources_subscribe(JSON_Value &idRequest, const char *URI) { return NULL; }
+char* Handle_resources_unsubscribe(JSON_Value &idRequest, const char *URI) { return NULL; }
+// -------------------
+// ---- Catch-all ----
+// -------------------
 char* Handle_method(MCPInputRequest &MCPRequest) { return NULL; }
 ```
 
@@ -262,7 +284,7 @@ Always-On Setup* above).
 
 ## Build System
 
-To add a new aspect, add it to both Makefiles in the `mcp/` directory:
+To add a new aspect, add it to the Makefiles in the `mcp/` directory:
 
 **GNU Make (`Makefile`) — Linux:**
 ```makefile
@@ -333,13 +355,13 @@ See also: **[MCPServer Wiring & Transport Guide](./MCPServer_WiringGuide.md)**
 
 The core framework (`MCPServer.cpp`) inherently supports:
 * **Async Tools:** Set `MCPServer_Asynchronous = true` and return `Return_MCPOutput_Pending()`. Use `PostMCPOutput()` or `PostNotifyAction()` from your worker thread.
-* **Sampling:** Send `sampling/createMessage` requests to the LLM and catch the result in `Handle_sampling_response()`. Use `FormMCPRequest_sampling()` to build a sampling request.
+* **Sampling:** For worker threads, use `MCPSyncSampler` or the hybrid `MCPSyncSamplerEx` to make straight-line blocking calls (`BlockingSample()`) that route transparently across native MCP sampling, local ACP agents, or external AI endpoints. Otherwise, for manual asynchronous correlation, send `sampling/createMessage` requests using `FormMCPRequest_sampling()` and catch the result in `Handle_sampling_response()`.
 * **Prompts & Agentic Polyfill:** Populate `MCPPromptInfo[]` and implement `Handle_prompts_get()`. Use `FormMCPResponse_prompt()` to respond to a prompt request. By default, the framework automatically polyfills these prompts as agentic services (`listPrompts` and `getPrompt` tools), allowing LLMs to seamlessly invoke them even if the client application lacks native prompt support. This behavior can be disabled via the `-DIncludePromptTools=0` compiler flag.
 * **Input-Required Round Trips (MCP 2026-07-28):** Return an `input_required` result built with `FormMCPResult_inputRequired()` (or the `requestState` overload of `FormMCPRequest_sampling()`). The client resumes with a `tools/call` carrying `requestState`, which the framework routes to `Handle_tools_call_resume()`; returning `NULL` from the resume handler yields a standard `-32602` error.
 * **Custom `main()` (`NO_MAIN_MCP`):** Define `NO_MAIN_MCP` to supply your own `main()` and drive the lifecycle explicitly via `main_mcp_init()`, `main_mcp()`, and `main_mcp_deinit()` — the same order the default `MCPServer.cpp` uses. Useful when the aspect must own process startup.
 
 ## Checklist for a New Aspect
-- [ ] Copy `MCPServer_helloWorld.cpp` → `MCPServer_myAspect.cpp`
+- [ ] Copy `MCPServer_helloWorld.cpp` (or other Reference Template) → `MCPServer_myAspect.cpp`
 - [ ] Set Identity (`MCPServer_Name`, `MCPServer_Version`)
 - [ ] Define `MCPToolInfo[]`
 - [ ] Implement `FormMCPResponse_xxx()` and `MCPtool_xxx()`

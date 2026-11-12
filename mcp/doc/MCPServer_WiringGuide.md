@@ -17,7 +17,7 @@ When the MCP server executable resides on the same machine as the AI client, the
   "mcpServers": {
     "helloWorld_local": {
       "type": "stdio",
-      "command": "P:\\Programs\\tsar-mcp\\mcp\\build\\Release\\MCPServer_helloWorld.exe",
+      "command": "D:\\tsar-mcp\\mcp\\build\\Release\\MCPServer_helloWorld.exe",
       "args": [
         "-debug"
       ]
@@ -45,7 +45,7 @@ The AI client runs `ssh.exe` locally. The SSH client securely connects to the re
       "command": "C:\\WINDOWS\\System32\\OpenSSH\\ssh.exe",
       "args": [
         "eric@taurus",
-        "Programs/tsar-mcp/mcp/build/Release/MCPServer_helloWorld",
+        "tsar-mcp/mcp/build/Release/MCPServer_helloWorld",
         "-debug",
         "-trace"
       ]
@@ -68,11 +68,11 @@ When using Plink, include the `-batch` flag. This disables all interactive promp
   "mcpServers": {
     "helloWorld_plink": {
       "type": "stdio",
-      "command": "C:\\Util\\PuTTY\\PLINK.EXE",
+      "command": "C:\\Program Files\\PuTTY\\PLINK.EXE",
       "args": [
         "-batch",
         "eric@taurus",
-        "Programs/tsar-mcp/mcp/build/Release/MCPServer_helloWorld"
+        "tsar-mcp/mcp/build/Release/MCPServer_helloWorld"
       ]
     }
   }
@@ -80,12 +80,66 @@ When using Plink, include the `-batch` flag. This disables all interactive promp
 
 ```
 
+## 4. Local Execution with Universal Sampling (`env` Configuration)
+
+Servers that use the hybrid blocking sampler (`MCPSyncSamplerEx`) take their configuration from environment variables. The example below arms **both** fallbacks so the whole chain is visible; the two groups are independent, and configuring only one is normal.
+
+**Example: `mcp.json`**
+
+```json
+{
+  "mcpServers": {
+    "spellCheck_local": {
+      "type": "stdio",
+      "command": "D:\\tsar-mcp\\mcp\\build\\Release\\MCPServer_spellCheck.exe",
+      "args": [
+        "-debug"
+      ],
+      "env": {
+        "MCPSample_ACP_CMD": "node \"%APPDATA%\\npm\\node_modules\\@ibm\\bob\\dist\\bob.js\" acp --trust",
+        "MCPSample_ACP_CWD": "C:\\Temp\\Bob",
+        "BOB_API_KEY": "YOUR_BOB_KEY",
+
+        "MCPSample_AI_URL": "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent",
+        "MCPSample_AI_MODEL": "gemini-2.5-flash",
+        "MCPSample_AI_KEY": "YOUR_GEMINI_KEY"
+      }
+    }
+  }
+}
+```
+On Linux the same two ACP settings become:
+
+```json
+        "MCPSample_ACP_CMD": "/usr/local/bin/bob acp --trust",
+        "MCPSample_ACP_CWD": "/home/eric/tmp/bob",
+```
+
+### Key Environment Variables for Sampling
+
+**Local ACP agent:**
+
+* **`MCPSample_ACP_CMD`:** The command line that launches the local Agent Context Protocol (ACP) agent (e.g. IBM Bob in ACP mode). Experience leans to using an absolute path.
+* **`MCPSample_ACP_CWD`:** The directory the ACP agent runs in. Treat this and `MCPSample_ACP_CMD` together as a **capability grant**, not a convenience setting — especially with `--trust`, which suppresses the agent's own confirmation prompts. An aspect that only transforms text (like `spellCheck`) has no meaningful workspace and can be pointed at a throwaway directory; an aspect that reasons about your code should be given the project you actually mean it to see.
+* **Agent credentials** (`BOB_API_KEY` above) are *not* TSAR-MCP settings. The `env` block is inherited by the spawned agent, so the agent's own configuration belongs here too. Bob keys: [bob.ibm.com/admin/apikeys](https://bob.ibm.com/admin/apikeys)
+
+**External AI (cURL egress):**
+
+* **`MCPSample_AI_URL`:** Provider endpoint. A `%s` in the URL is substituted with `MCPSample_AI_MODEL` — **Google-native endpoints only**; OpenAI and Anthropic URLs are sent verbatim.
+* **`MCPSample_AI_MODEL`:** Model identifier, which also selects the request format: a name containing `gemini` or `anthropic` picks that provider's payload shape, while `openai` appearing in the *URL* forces the OpenAI shape.
+* **`MCPSample_AI_KEY`:** API key for the provider. Gemini: [aistudio.google.com/api-keys](https://aistudio.google.com/api-keys) — OpenAI: [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+
+Together these three arm the external cURL egress path, used as a last resort when neither MCP client sampling nor a local ACP agent is available.
+
+**Routing:**
+
+* **`MCPSample_EXTERN_PRIORITY`:** `1`/`T`/`Y` steps the connected AI client aside so an external engine answers first (ACP, then cURL) — useful when the client's model is weaker than the one you have configured locally. It is a priority, not a prohibition: with no external engine available, the client still answers.
+
+*For the full routing order and cancellation semantics, see the **[MCPServer Advanced Patterns Guide](./MCPServer_AdvancedPatterns.md)** (`MCPSyncSamplerEx`).*
+
 ## Troubleshooting
 
 * **`-debug`:** Appending this argument to the TSAR-MCP execution command will output diagnostic information (typically routed to the client's debug logs or a local trace file, depending on your aspect implementation).
 * **`-trace`:** Enables deeper runtime tracing within the `CommonC` foundation.
 * **Connection Hangs:** If a remote SSH/Plink connection hangs upon initialization, verify that your SSH keys are correctly loaded in `ssh-agent` or Pageant. Any underlying prompt for a passphrase or fingerprint confirmation will halt the MCP handshake.
 * **Pseudo-terminal (`-t`):** Do not allocate a pty when wiring a server to an AI client. TSAR-MCP is a raw `stdio` transport, and a remote pty's line discipline can interpret client teardown bytes (e.g. `Ctrl-Z`) as the Unix SUSP signal — suspending rather than ending the process and hanging the connection on shutdown. Omit `-t` (the OpenSSH `ssh.exe` examples already do). The one exception is *manual* interactive testing, where `-t` is needed so Plink provides a terminal to line-buffer your typed input; reserve it for that case only.
-
-```
-

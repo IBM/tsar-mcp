@@ -40,7 +40,7 @@
 #include <MCPAsyncCore.h>
 
 #ifndef NumMCPThreads                   // Number of simultaneous 
-        #define NumMCPThreads 5         // requests; others will queue.
+        #define NumMCPThreads 6         // requests; others will queue.
 #endif
 
 // ----------------------------
@@ -49,8 +49,9 @@
 
 bool PostAsyncObject(void *UserPtr);
 bool PostShutdown();
+
 #ifdef _WIN32
-    int MCPExceptionHandler(const char *ProcName, EXCEPTION_POINTERS *EXInfo);
+     int MCPExceptionHandler(const char *ProcName, EXCEPTION_POINTERS *EXInfo);
 #endif
 
 // ***************************************************************************
@@ -102,9 +103,9 @@ class RunMCPDispatcher : public MessageQueue    // Runs in Main Thread.
                 //
                 // MCPServer Callbacks
                 //
-                static char* Handle_async_work(void *UserPtr);
-                static void Discard_async_work(void *UserPtr);
                 static bool Cancel_async_work(MCPInputRequest &MCPRequest);
+                static void Discard_async_work(void *UserPtr);
+                static char* Handle_async_work(void *UserPtr);
                 //
                 // Note: Only call methods from the main thread.
                 //

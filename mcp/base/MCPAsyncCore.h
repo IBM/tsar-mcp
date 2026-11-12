@@ -40,8 +40,11 @@
 //
 // Note on MCPAsyncWork for resource/read:
 //
-//      The derived MCPAsyncWork would pass JSON_Object() into the constructor
-//      and need to save off inURI itself. 
+//      The derived MCPAsyncWork would pass an empty JSON_Object:
+//
+//              static JSON_Object _emptyJSONObject;
+//
+//      into the constructor and would need to save off inURI itself.
 //
 
 #ifndef __MCPServerAsync_Core

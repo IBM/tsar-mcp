@@ -502,16 +502,15 @@ JSON_Value* MCPInputRequest::FindMemberValue(const char *Key)
         return JSONRequest->FindMemberValue(Key);
         }
 
-const char* MCPInputRequest::Get_jsonrpc() 
+JSON_Object* MCPInputRequest::Get_error()
         {
-        const char *jsonrpc = NULL;
-        JSON_Value *Value = FindMemberValue("jsonrpc");
-        if (Value && Value->isString())
+        JSON_Object *error = NULL;
+        JSON_Value *Value = FindMemberValue("error");
+        if (Value && Value->isObject())
                 {
-                JSON_Value_String *String = (JSON_Value_String *)Value;
-                jsonrpc = String->string;
+                error = (JSON_Value_Object *)Value;
                 }
-        return jsonrpc;
+        return error;
         }
 
 JSON_Value* MCPInputRequest::Get_id() 
@@ -526,6 +525,18 @@ JSON_Value* MCPInputRequest::Get_id()
                 return NULL;
                 }
         return Value;
+        }
+
+const char* MCPInputRequest::Get_jsonrpc() 
+        {
+        const char *jsonrpc = NULL;
+        JSON_Value *Value = FindMemberValue("jsonrpc");
+        if (Value && Value->isString())
+                {
+                JSON_Value_String *String = (JSON_Value_String *)Value;
+                jsonrpc = String->string;
+                }
+        return jsonrpc;
         }
 
 const char* MCPInputRequest::Get_method() 
@@ -551,17 +562,6 @@ JSON_Object* MCPInputRequest::Get_params()
         return params;
         }
 
-JSON_Object* MCPInputRequest::Get_result()
-        {
-        JSON_Object *result = NULL;
-        JSON_Value *Value = FindMemberValue("result");
-        if (Value && Value->isObject())
-                {
-                result = (JSON_Value_Object *)Value;
-                }
-        return result;
-        }
-
 JSON_Value* MCPInputRequest::Get_param(const char *Key)
         {
         static const char *ProcName = "MCPInputRequest::Get_param";
@@ -574,6 +574,17 @@ JSON_Value* MCPInputRequest::Get_param(const char *Key)
                 }
         JSON_Value *Param = Params->FindMemberValue(Key);
         return Param;
+        }
+
+JSON_Object* MCPInputRequest::Get_result()
+        {
+        JSON_Object *result = NULL;
+        JSON_Value *Value = FindMemberValue("result");
+        if (Value && Value->isObject())
+                {
+                result = (JSON_Value_Object *)Value;
+                }
+        return result;
         }
 
 // ----------------------------------
