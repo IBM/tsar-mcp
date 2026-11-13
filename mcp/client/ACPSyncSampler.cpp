@@ -19,6 +19,7 @@
 #include <ASThread.h>
 #include <LevelTrace.h>
 #include <MEMprintf.h>
+#include <DirList.h>
 
 #include <ACPSyncSampler.h>
 
@@ -119,43 +120,32 @@ static const char* getACPCMD(AutoString &asCommand)
         static const char *ProcName = "getACPCMD";
         const char *MCPSample_ACP_CMD = getenv("MCPSample_ACP_CMD");
         if (!MCPSample_ACP_CMD) return NULL;
-  #ifdef _WIN32
-        do      {
-                // ------------------------------------------------------
-                // Windows: Expand environment variables for convenience.
-                // ------------------------------------------------------
-                DWORD rcExpand = ExpandEnvironmentStrings(MCPSample_ACP_CMD,
-                                                          NULL,
-                                                          0);
-                if (!rcExpand)
-                        {
-                        TERROR(("%s: 1:ExpandEnvironmentStrings() Failed",
-                                ProcName));
-                        asCommand = MCPSample_ACP_CMD;
-                        break;
-                        }
-                asCommand.Reset(rcExpand);
-                if (asCommand.GetLength() < rcExpand)
-                        {
-                        TERROR(("%s: Alloc (%d) Error",ProcName,rcExpand));
-                        asCommand = MCPSample_ACP_CMD;
-                        break;
-                        }
-                DWORD rcExpand2 = ExpandEnvironmentStrings(MCPSample_ACP_CMD,
-                                                           asCommand.GetString(),
-                                                           rcExpand);
-                if (rcExpand2 == 0 || rcExpand2 > rcExpand)
-                        {
-                        TERROR(("%s: 2:ExpandEnvironmentStrings() Failed",
-                                ProcName));
-                        asCommand = MCPSample_ACP_CMD;
-                        break;
-                        }
-                } while (0);
-  #else
-        asCommand = MCPSample_ACP_CMD; 
-  #endif
+        DirectoryList Resolver;
+        Resolver.AddPath(MCPSample_ACP_CMD,DL_Before);
+        DirectoryItem *Resolved = Resolver.GetFirst();
+        if (!Resolved)
+                {
+                TERROR(("Can't resolve Path: %s",MCPSample_ACP_CMD));
+                asCommand = MCPSample_ACP_CMD;
+                }
+        else asCommand = Resolved->GetDirectory();
         return asCommand.GetString();
+        }
+
+static const char* getACPCWD(AutoString &asWorkspace, const char *Cwd)
+        {
+        static const char *ProcName = "getACPCWD";
+        if (!Cwd) return NULL;
+        DirectoryList Resolver;
+        Resolver.AddPath(Cwd,DL_Before);
+        DirectoryItem *Resolved = Resolver.GetFirst();
+        if (!Resolved)
+                {
+                TERROR(("Can't resolve Path: %s",Cwd));
+                asWorkspace = Cwd;
+                }
+        else asWorkspace = Resolved->GetDirectory();
+        return asWorkspace.GetString();
         }
 
 // ****************************
@@ -360,17 +350,19 @@ bool ACPSyncSampler::BlockingOpen(const char *Cwd, unsigned TimeoutMS)
                 TERROR(("%s: Session is already open",ProcName));
                 return false;
                 }
-        // ---------------------------------------------------------------
-        // Refused before the Agent is spawned: session/new has no
-        // default workspace, and a missing one would otherwise cost a
-        // process start to be told so.
-        // ---------------------------------------------------------------
+        // ------------------------------------------------------
+        // A current working directory is required. Resolve path.
+        // ------------------------------------------------------
+        AutoString asWorkspace;
         if (!Cwd || !*Cwd)
                 {
                 ErrorReason = "no_workspace";
                 TERROR(("%s: No Workspace (Cwd) given",ProcName));
                 return false;
                 }
+        const char *workspaceDir = getACPCWD(asWorkspace,Cwd);
+        if (workspaceDir) Cwd = workspaceDir;
+        TDEBUG(("%s: ACP Workspace: %s",ProcName,workspaceDir));
         // ---------------------
         // ---- Start Agent ----
         // ---------------------

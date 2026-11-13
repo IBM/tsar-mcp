@@ -209,8 +209,8 @@ char* EscapeJSONString(const char *Source, size_t SourceLen)
                                              nWritten,
                                              Source,
                                              SourceLen);
+                        Buffer[nWritten] = '\0';                                             
                         }
-                Buffer[nWritten] = '\0';
                 }
         return Buffer;
         }
@@ -605,8 +605,35 @@ JSON_Object::~JSON_Object()
 
 bool JSON_Object::AddMember(JSON_Member **MemberToAdd)
         {
-        static const char *ProcName = "JSON_Object::AddMember";
+        return InsertMember(MemberToAdd,nMembers);      // Append.
+        }
+
+// ---------------------------------------------------------------------
+// ---- InsertMember ---------------------------------------------------
+// -------------------
+//
+//      Places a member at Position, shifting the tail rightwards.
+//      Position beyond the end clamps to an append, which is how
+//      AddMember() is expressed - one insertion path, not two.
+//
+//      Note: RemoveMember() locates a member through its Value's
+//      IndexInParent, so the shifted tail MUST be renumbered here or
+//      every later removal on this object misbehaves.
+//
+// ---------------------------------------------------------------------
+
+bool JSON_Object::InsertMember(JSON_Member **MemberToAdd, unsigned Position)
+        {
+        static const char *ProcName = "JSON_Object::InsertMember";
         if (!MemberToAdd || !*MemberToAdd) return false;
+        if (!(*MemberToAdd)->Value)
+                {
+                // JSON null is a JSON_Value_Null, never a NULL pointer.
+                // RemoveMember() locates a member through its Value, so a
+                // member without one could never be removed again.
+                TERROR(("%s: JSON_Member has no Value",ProcName));
+                return false;
+                }
         if (nMembers == maxMembers)
                 {
                 JSON_Member* *newMembers;
@@ -621,16 +648,25 @@ bool JSON_Object::AddMember(JSON_Member **MemberToAdd)
                 maxMembers = newCount;
                 Members = newMembers;
                 }
-        unsigned Index = nMembers++;
-        Members[Index] = *MemberToAdd;
+        if (Position > nMembers) Position = nMembers;   // Clamp to append.
+        // --------------------------------------------
+        // ---- Shift remaining members rightwards ----
+        // --------------------------------------------
+        for (unsigned i=nMembers; i > Position; i--)
+                {
+                Members[i] = Members[i-1];
+                if (Members[i]->Value) Members[i]->Value->IndexInParent = i;
+                }
+        nMembers++;
+        Members[Position] = *MemberToAdd;
         *MemberToAdd = NULL;
         // -------------------------
         // ---- Set Backpointer ----
         // -------------------------
-        if (Members[Index]->Value)
+        if (Members[Position]->Value)
                 {
-                Members[Index]->Value->Parent = this;
-                Members[Index]->Value->IndexInParent = Index;
+                Members[Position]->Value->Parent = this;
+                Members[Position]->Value->IndexInParent = Position;
                 }
         return true;
         }
@@ -641,6 +677,12 @@ bool JSON_Object::AddValue(const char *Key, JSON_Value **ValueToAdd)
         if (!Key)
                 {
                 TERROR(("%s: Missing Key",ProcName));
+                return false;
+                }
+        if (!ValueToAdd || !*ValueToAdd)
+                {
+                TERROR(("%s: Missing JSON_Value (use Add_member_null)",
+                        ProcName));
                 return false;
                 }
         JSON_Member *member = new JSON_Member();
@@ -1239,7 +1281,36 @@ JSON_Value_Array::~JSON_Value_Array()
 
 bool JSON_Value_Array::AddValue(JSON_Value **ValueToAdd)
         {
-        static const char *ProcName = "JSON_Value_Array::AddValue";
+        return InsertValue(ValueToAdd,nValues);         // Append.
+        }
+
+// ---------------------------------------------------------------------
+// ---- InsertValue ----------------------------------------------------
+// ------------------
+//
+//      Places a value at Position, shifting the tail rightwards.
+//      Position beyond the end clamps to an append, which is how
+//      AddValue() is expressed - one insertion path, not two.
+//
+//      Note: RemoveValue() locates an element through IndexInParent,
+//      so the shifted tail MUST be renumbered here.
+//
+// ---------------------------------------------------------------------
+
+bool JSON_Value_Array::InsertValue(JSON_Value **ValueToAdd,
+                                   unsigned Position)
+        {
+        static const char *ProcName = "JSON_Value_Array::InsertValue";
+        if (!ValueToAdd || !*ValueToAdd)
+                {
+                // JSON null is a JSON_Value_Null, never a NULL pointer.
+                // RemoveValue() locates an element through IndexInParent,
+                // so a NULL element could never be removed again, and
+                // would fault during cloning and printing.
+                TERROR(("%s: Missing JSON_Value (use Add_value_null)",
+                        ProcName));
+                return false;
+                }
         if (nValues == maxValues)
                 {
                 JSON_Value* *newValues;
@@ -1254,17 +1325,23 @@ bool JSON_Value_Array::AddValue(JSON_Value **ValueToAdd)
                 maxValues = newCount;
                 Values = newValues;
                 }
-        unsigned Index = nValues++;
-        Values[Index] = *ValueToAdd;
+        if (Position > nValues) Position = nValues;     // Clamp to append.
+        // -------------------------------------------
+        // ---- Shift remaining values rightwards ----
+        // -------------------------------------------
+        for (unsigned i=nValues; i > Position; i--)
+                {
+                Values[i] = Values[i-1];
+                if (Values[i]) Values[i]->IndexInParent = i;
+                }
+        nValues++;
+        Values[Position] = *ValueToAdd;
         *ValueToAdd = NULL;
         // -------------------------
         // ---- Set Backpointer ----
         // -------------------------
-        if (Values[Index])
-                {
-                Values[Index]->Parent = this;
-                Values[Index]->IndexInParent = Index;
-                }
+        Values[Position]->Parent = this;
+        Values[Position]->IndexInParent = Position;
         return true;
         }
 

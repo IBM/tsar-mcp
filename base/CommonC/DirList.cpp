@@ -11,7 +11,7 @@
 //
 
 #include <errno.h>
-#include <ctype.h>
+
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,7 +30,6 @@
 
 #ifdef _AIX
         #include <procinfo.h>
-        extern "C" int getargs (procentry64*, int, char*, int);
 #endif
 
 #ifdef __BORLANDC__
@@ -45,6 +44,7 @@
 #endif
 
 #include <LevelTrace.h>
+#include <MEMprintf.h>
 #include <MiniGREP.h>
 #include <DirList.h>
 
@@ -58,6 +58,10 @@
         #define PATHDELIM '/'
         #define PATHSEP ':'
 #endif
+
+// ***************************************************************************
+// **** EditString ***********************************************************
+// ***************************************************************************
 
 static bool EditString(char **Source, const char *Find, const char *Replace)
         {
@@ -85,6 +89,207 @@ static bool EditString(char **Source, const char *Find, const char *Replace)
                 }
         return true;
         }
+
+// ***************************************************************************
+// **** Tokenize Directories in Path *****************************************
+// ***************************************************************************
+
+static const char* dirtok(const char* &End, size_t &Length)
+        {
+        enum State_t
+                {
+                InUnquoted,
+                InSingleQuote,
+                InDoubleQuote
+                } State = InUnquoted;
+
+        if (!End) return NULL;
+        // --------------------------------------------------
+        // Skip spaces and empty segments (e.g. ";;" or "::")
+        // --------------------------------------------------
+        while (*End && (*End==' ' || *End=='\t' || *End==PATHSEP)) End++;
+        if (!*End) return NULL;
+        const char *Start = End;
+        while (*End)
+                {
+                if (State == InSingleQuote)
+                        {
+                        if (*End == '\'') State = InUnquoted;
+                        }
+                else if (State == InDoubleQuote)
+                        {
+                        if (*End == '"') State = InUnquoted;
+                        }
+                else    {
+                        if (*End == PATHSEP) break;
+                        if (*End == '\'') State = InSingleQuote;
+                        else if (*End == '"') State = InDoubleQuote;
+                        }
+                End++;
+                }
+        const char *Stop = End;
+        // ---------------------------
+        // End points to the next item
+        // ---------------------------
+        if (*End == PATHSEP) End++;
+        // --------------------
+        // Trim trailing spaces
+        // --------------------
+        while (Stop > Start && (*(Stop-1)==' ' || *(Stop-1)=='\t')) Stop--;
+        Length = (size_t)(Stop - Start);
+        return Length ? Start : NULL;
+        }
+
+// ***************************************************************************
+// **** ExpandDirectory ******************************************************
+// ***************************************************************************
+
+static const char* envtok(const char* &End, size_t &Length, size_t &Remaining)
+        {
+        enum State_t 
+                {
+                InChar,
+                InDollar,
+                InVarBrace,
+                InVarPercent,
+                InTilde,
+                InQuote
+                } State;
+        if (!End || !Remaining || !*End) return NULL;
+        Length = 0;
+        const char *Start = End;
+        if (*End == '$') State = InDollar;
+        else if (*End == '%') State = InVarPercent;
+        else if (*End == '\'') State = InQuote;
+        else if (*End == '~') State = InTilde;
+        else State = InChar;
+        End++;
+        Length++;
+        Remaining--;
+        while (Remaining && *End)
+                {
+                if (State == InTilde) break;    // Only one character.
+                else if (State == InQuote)
+                        {
+                        if (*End == '\'')
+                                {
+                                End++;
+                                Length++;
+                                Remaining--;
+                                break;
+                                }
+                        }
+                else if (State == InDollar)
+                        {
+                        if (*End == ':') break;
+                        if (*End == ';') break;
+                        if (*End == '\\') break;
+                        if (*End == '/') break;
+                        if (*End == '$') break;
+                        if (*End == '%') break;
+                        if (*End == '\'') break;
+                        if (*End == '"') break;
+                        if (*End == ' ') break;
+                        if (*End == '\t') break;
+                        if (*End == '{'/*}*/ && Length==1) State = InVarBrace;
+                        }     
+                else if (State == InVarBrace)
+                        {
+                        if (*End == /*{*/'}') 
+                                {
+                                End++;
+                                Length++;
+                                Remaining--;
+                                break;
+                                }
+                        }
+                else if (State == InVarPercent)
+                        {
+                        if (*End == '%') 
+                                {
+                                End++;
+                                Length++;
+                                Remaining--;
+                                break;
+                                }
+                        }
+                else    {
+                        if (*End == '$') break;
+                        if (*End == '%') break;
+                        if (*End == '\'') break;
+                        if (*End == '"') break;
+                        }
+                End++;
+                Length++;
+                Remaining--;
+                }
+        return Start;
+	}
+
+char* ExpandDirectory(const char *Directory, size_t DirectoryLength)
+        {
+        MemoryPrintf Canvas;
+        size_t Length = 0;
+        size_t Remaining = DirectoryLength;
+        const char *End = Directory;
+        const char *String = envtok(End,Length,Remaining);
+        while (String)
+                {
+                size_t VarLen = 0;
+                const char *VarPos = NULL;
+                char EnvName[256];
+                const char *EnvValue = NULL;
+                if (Length >= 3 && String[0] == '$' && String[1] == '{' && 
+                                                       String[Length-1] == '}')
+                        {
+                        VarLen = Length - 3;
+                        VarPos = String + 2;
+                        }
+                else if (Length >= 2 && String[0] == '%' && 
+                                        String[Length-1] == '%')
+                        {
+                        VarLen = Length - 2;
+                        VarPos = String + 1;
+                        }
+                else if (Length >= 2 && String[0] == '$' && String[1] != '{')
+                        {
+                        VarLen = Length - 1;
+                        VarPos = String + 1;
+                        }
+                else if (Length == 1 && String[0] == '~' &&
+                                       (String == Directory || 
+                                        String[-1] == ' ' || 
+                                        String[-1] == '\t') &&
+                                       (Remaining == 0 || 
+                                        String[1] == '/' || 
+                                        String[1] == '\\'))
+                        {
+                        // ---------------------------------
+                        // ~ Must be first in the directory.
+                        // ---------------------------------
+        #ifdef _WIN32
+                        VarPos = "USERPROFILE";
+        #else
+                        VarPos = "HOME";
+        #endif
+                        VarLen = strlen(VarPos);
+                        }
+                if (VarLen && VarLen+1 < sizeof(EnvName))
+                        {
+                        memcpy(EnvName,VarPos,VarLen);
+                        EnvName[VarLen] = '\0';
+                        EnvValue = getenv(EnvName);
+                        }
+                if (EnvValue) Canvas.printf("%s",EnvValue);
+                else Canvas.printf("%.*s",Length,String);
+                String = envtok(End,Length,Remaining);
+                }
+        return Canvas.AquireBuffer();           // Caller frees.
+        }
+
+// ***************************************************************************
+// **** DirectoryItem ********************************************************
+// ***************************************************************************
 
 DirectoryItem::DirectoryItem(DirectoryItem &Item) 
         {
@@ -213,7 +418,16 @@ char* DirectoryItem::FindFirst(const char *ToFind,      // Caller is
         struct dirent *Result = NULL; 
         int rc = 0;
         do      {
+                #if defined(__GNUC__) && !defined(_AIX)
+                        // readdir_r is deprecated in glibc, but remains the 
+                        // thread-safe call on AIX, so keep it and silence g++.
+                        #pragma GCC diagnostic push
+                        #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+                #endif
                 rc = readdir_r(hDir,Entry,&Result);
+                #if defined(__GNUC__) && !defined(_AIX)
+                        #pragma GCC diagnostic pop
+                #endif
                 if (Result == NULL) rc = EBADF;
                 if (rc == 0)
                         {
@@ -256,32 +470,61 @@ DirectoryItem& DirectoryItem::operator = (DirectoryItem &Item)
         return *this;
         }
 
-bool DirectoryList::AddDirectory(const char *Directory)
+// ***************************************************************************
+// **** DirectoryList ********************************************************
+// ***************************************************************************
+
+bool DirectoryList::AddDirectory(const char *Directory, size_t Length)
         {
-        // ----------------------------------
-        // ---- Strip leading quote --------
-        // ----------------------------------
-        if (*Directory == '"' || *Directory == '\'') Directory++;
-        // ----------------------------------
-        // ---- Find end of this entry -----
-        // ----------------------------------
-        const char *Stop = Directory;
-        while (*Stop && *Stop != PATHSEP) Stop++;
-        while (Stop != Directory && isspace(*(Stop-1))) Stop--;
-        if (Stop != Directory && (*(Stop-1) == '"' || *(Stop-1) == '\'')) Stop--;
-        size_t Length = Stop - Directory ;
-        if (!Length) return false;
+        if (!Directory || !Length) return false;
+        // ---------------------------
+        // ---- Expand Env & Tilde ---
+        // ---------------------------
+        char *Expanded = ExpandDirectory(Directory,Length);
+        if (!Expanded) return false;
+        if (!*Expanded)
+                {
+                free(Expanded);
+                return true;            // Nothing to add -- ok.
+                }
+        // ----------------------
+        // ---- Strip Quotes ----
+        // ----------------------
+        size_t ExpandedLength = strlen(Expanded);
+        if (ExpandedLength >= 2 &&
+            ((Expanded[0] == '\'' && Expanded[ExpandedLength-1] == '\'') ||
+             (Expanded[0] == '"' && Expanded[ExpandedLength-1] == '"')))
+                {    
+                if (ExpandedLength == 2)
+                        {
+                        free(Expanded);
+                        return true;    // Nothing to add -- ok.
+                        }
+                memmove(Expanded,Expanded+1,ExpandedLength-2);
+                Expanded[ExpandedLength-2] = '\0';
+             // ExpandedLength -= 2;
+                }
         // ---------------------------
         // ---- Add to the Bottom ----
         // ---------------------------
         DirectoryItem *Item = new DirectoryItem;
-        if (!Item) return false;
-        Item->Directory = (char *)malloc(Length + 1);
-        if (!Item->Directory) return false;
-        memcpy(Item->Directory,Directory,Length);
-        Item->Directory[Length] = '\0';
+        if (!Item)
+                {
+                free(Expanded);
+                return false;
+                }
+        Item->Directory = Expanded;             // Direct ownership transfer
         AddBottom(Item);
         return true;
+        }
+
+bool DirectoryList::AddDirectory(const char *Directory)
+        {
+        if (!Directory) return false;
+        size_t Length = 0;
+        const char *End = Directory;
+        const char *Dir = dirtok(End, Length);
+        return Dir ? AddDirectory(Dir, Length) : false;
         }
 
 bool DirectoryList::AddDirectory(DirectoryList &List, DL_Position_t Pos)
@@ -309,13 +552,15 @@ bool DirectoryList::AddPath(const char *Path, DL_Position_t Pos)
         {
         if (!Path || !*Path) return true;
         DirectoryList AppendList;
-        const char *Directory = GetFirstDir(Path);
+        size_t Length = 0;
+        const char *End = Path;
+        const char *Directory = dirtok(End, Length);
         while (Directory)
                 {
-                AppendList.AddDirectory(Directory);
-                Directory = GetNextDir(Directory);
+                AppendList.AddDirectory(Directory, Length);
+                Directory = dirtok(End, Length);
                 }
-        AddDirectory(AppendList,Pos);
+        AddDirectory(AppendList, Pos);
         return true;
         }
 
@@ -420,7 +665,6 @@ bool DirectoryList::AddApplicationDir(DL_Position_t Pos)
 
 bool DirectoryList::AddApplicationDir(DL_Position_t Pos)
         {
-        int rc;
         char AppDir[PATH_MAX+1];
         if (!realpath("/proc/self/exe",AppDir))
                 {
@@ -473,21 +717,6 @@ bool DirectoryList::FindFile(const char *Filename, DirectoryItem *FoundPath)
                 Current = GetNext(Current);
                 }
         return false;
-        }
-
-const char* DirectoryList::GetFirstDir(const char *Paths)
-        {
-        while (*Paths && isspace(*Paths)) Paths++;
-        return *Paths ? Paths : NULL;
-        }
-
-const char* DirectoryList::GetNextDir(const char *Paths)
-        {
-        while (*Paths && *Paths != PATHSEP) Paths++;
-        if (!*Paths) return NULL;
-        Paths++;
-        while (*Paths && isspace(*Paths)) Paths++;
-        return Paths;
         }
 
 bool DirectoryList::SetPath(const char *Path)

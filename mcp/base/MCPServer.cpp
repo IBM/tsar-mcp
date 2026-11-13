@@ -1940,10 +1940,9 @@ static char* MCPtool_readTrace(JSON_Value &idRequest, JSON_Object &Arguments)
         char *TraceFile = ReadTraceFile(Tail,ReadLength);
         if (!TraceFile)
                 {
-                MCPOutput = FormMCPResponse_ERROR(&idRequest,
-                                                  MCPErrorCode_Exception,
-                                                  "Read Error",
-                                                  "Unable to read trace file");
+                MCPOutput = FormMCPResponse_Text(&idRequest,
+                                                 "Unable to read trace file",
+                                                 true);
                 return MCPOutput;
                 }
         // ---------------------------------

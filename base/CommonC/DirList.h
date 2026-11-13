@@ -14,6 +14,7 @@
 
         #define __Directory_List
 
+#include <stddef.h>
 #include <LinkList.h>
 
 enum DL_Position_t {DL_Before, DL_After};
@@ -50,13 +51,12 @@ DefineLinkList(_DirectoryList,DirectoryItem);
 
 class DirectoryList : public _DirectoryList
         {
-        private:
-                const char* GetFirstDir(const char *Paths);
-                const char* GetNextDir(const char *Paths);
         protected:
                 bool AddDirectory(const char *Directory);
+                bool AddDirectory(const char *Directory, size_t Length);
                 bool AddDirectory(DirectoryList &List, DL_Position_t Pos);
         public:
+                ~DirectoryList() {SetAutoCleanup(true);}
                 bool AddApplicationDir(DL_Position_t Pos);
                 bool AddCWD(DL_Position_t Pos);
                 bool AddPath(const char *Path, DL_Position_t Pos);
@@ -67,6 +67,12 @@ class DirectoryList : public _DirectoryList
                 bool Edit(const char *Find, const char *Replace);
                 bool SetPath(const char *Path);
         };
+
+// ***************************************************************************
+// **** ExpandDirectory (Caller must free result) ****************************
+// ***************************************************************************
+
+char* ExpandDirectory(const char *Directory, size_t DirectoryLength);
 
 /* ****************************************************************************
  Notes:
@@ -82,23 +88,25 @@ class DirectoryList : public _DirectoryList
                       - AddPath(const char *Path, DL_Position_t Pos)
 
                                 Adds a single 'Path' or list of paths
-                                seperated by the OS platform's standard
-                                path delimeter. 
+                                separated by the OS platform's standard
+                                path delimiter. 
 
                                 'Pos' specifies whether 'Path' should
                                 be added before (DL_Before) or after 
                                 (DL_After) in the current search list.
 
+                                Environment variables and '~' in 'Path'
+                                are resolved with ExpandDirectory().
+
                                 Example: 
                                 
-                                        AddPath(getenv("PATH",DL_After)
+                                        AddPath(getenv("PATH"), DL_After);
 
                       - AddApplicationDir(DL_Position_t Pos)
 
                                 Adds the directory where the current
-                                running program resides (argv[0]).
-
-                                This only has effect on Windows.
+                                running program resides (supported on
+                                Windows, AIX, and Linux).
 
                       - AddPATHEnv(DL_Position_t Pos)
 
@@ -121,10 +129,9 @@ class DirectoryList : public _DirectoryList
                                 'Filename'. 
 
                                 'Found', if not NULL, will be set to the
-                                 fullpath of 'Filename.'
+                                fullpath of 'Filename.'
                                 
                                 Returns true if the file is found. 
-
 
                       - ClearPath() 
 
@@ -138,8 +145,47 @@ class DirectoryList : public _DirectoryList
 
                       - SetPath(const char *Path)
 
-                                Shorcut for ClearPath() and AddPath(Path).
+                                Shortcut for ClearPath() and AddPath(Path).
                                 SetPath(NULL) is the same as ClearPath().
+
+   III. ExpandDirectory(const char *Directory, size_t DirectoryLength):
+
+                Expands environment variables (%VAR%, $VAR, ${VAR}) and
+                tilde ('~' -> USERPROFILE on Windows, HOME on Unix) within
+                'Directory'.
+
+                - Variables inside single quotes ('...') are preserved
+                  literally without expansion.
+
+                - '~' expands at index 0 or immediately after a space (' ')
+                  or tab ('\t'), when followed by '/', '\', or end-of-slice.
+
+                - Does not validate filesystem existence, so it can also
+                  expand variables and '~' in command strings:
+
+                        const char *Cmd = "notepad ~\\myfile.txt";
+                        char *Expanded = ExpandDirectory(Cmd, strlen(Cmd));
+
+             >> Caller is responsible for freeing the returned string.
+
+                Example:
+                        char *Expanded = ExpandDirectory(Directory, Length);
+                        if (!Expanded) return false;
+                        ...
+                        free(Expanded);
+
+                To also strip surrounding quotes and split PATH delimiters
+                into multiple entries, use DirectoryList::AddPath() instead:
+
+                        const char *ToResolve = "\"%windir%\\notepad.exe\"";
+                        DirectoryList Resolver;
+                        Resolver.AddPath(ToResolve, DL_Before);
+                        DirectoryItem *Resolved = Resolver.GetFirst();
+                        if (!Resolved)
+                                {
+                                TERROR(("Can't resolve Path: %s", ToResolve));
+                                }
+                        else TINFO(("Resolved: %s", Resolved->GetDirectory()));
 
 *******************************************************************************
 **** Example: which ***********************************************************
@@ -187,7 +233,7 @@ void Help(char *Program)
         return;
         }
 
-main(int argc, char *argv[])
+int main(int argc, char *argv[])
         {
         char *Fullpath = NULL;
         if (argc < 2) 
@@ -196,7 +242,7 @@ main(int argc, char *argv[])
                 return 0;
                 }
         const char *Filename = argv[1];
-	bool rc = FindFile(Filename,&Fullpath);
+        bool rc = FindFile(Filename,&Fullpath);
         if (rc) printf("%s\n",Fullpath);
         if (Fullpath) free(Fullpath);
         return rc ? 0 : 1;

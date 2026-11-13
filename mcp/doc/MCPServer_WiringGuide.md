@@ -97,7 +97,7 @@ Servers that use the hybrid blocking sampler (`MCPSyncSamplerEx`) take their con
       ],
       "env": {
         "MCPSample_ACP_CMD": "node \"%APPDATA%\\npm\\node_modules\\@ibm\\bob\\dist\\bob.js\" acp --trust",
-        "MCPSample_ACP_CWD": "C:\\Temp\\Bob",
+        "MCPSample_ACP_CWD": "~",
         "BOB_API_KEY": "YOUR_BOB_KEY",
 
         "MCPSample_AI_URL": "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent",
@@ -112,15 +112,15 @@ On Linux the same two ACP settings become:
 
 ```json
         "MCPSample_ACP_CMD": "/usr/local/bin/bob acp --trust",
-        "MCPSample_ACP_CWD": "/home/eric/tmp/bob",
+        "MCPSample_ACP_CWD": "~",
 ```
 
 ### Key Environment Variables for Sampling
 
 **Local ACP agent:**
 
-* **`MCPSample_ACP_CMD`:** The command line that launches the local Agent Context Protocol (ACP) agent (e.g. IBM Bob in ACP mode). Experience leans to using an absolute path.
-* **`MCPSample_ACP_CWD`:** The directory the ACP agent runs in. Treat this and `MCPSample_ACP_CMD` together as a **capability grant**, not a convenience setting — especially with `--trust`, which suppresses the agent's own confirmation prompts. An aspect that only transforms text (like `spellCheck`) has no meaningful workspace and can be pointed at a throwaway directory; an aspect that reasons about your code should be given the project you actually mean it to see.
+* **`MCPSample_ACP_CMD`:** The command line that launches the local Agent Context Protocol (ACP) agent (e.g. IBM Bob in ACP mode). Experience leans to using an absolute path. On Windows, launch the agent's executable directly (as `node` is above) rather than through a `.cmd` shim, so the process TSAR-MCP starts is the agent and cancellation can stop it.
+* **`MCPSample_ACP_CWD`:** The directory the ACP agent runs in. Treat this and `MCPSample_ACP_CMD` together as a **capability grant**, not a convenience setting — especially with `--trust`, which suppresses the agent's own confirmation prompts. `~` (your home directory, on Windows and Unix) is a convenient default, but it lets the agent see all of it. An aspect that only transforms text (like `spellCheck`) has no meaningful workspace and can be pointed at a throwaway directory instead; an aspect that reasons about your code should be given the project you actually mean it to see, and may set its own workspace (via `Sampler.SetWorkspace()`).
 * **Agent credentials** (`BOB_API_KEY` above) are *not* TSAR-MCP settings. The `env` block is inherited by the spawned agent, so the agent's own configuration belongs here too. Bob keys: [bob.ibm.com/admin/apikeys](https://bob.ibm.com/admin/apikeys)
 
 **External AI (cURL egress):**

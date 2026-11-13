@@ -134,7 +134,7 @@ static const char *MCPSample_ACP_CMD_Env =
         "node \"%APPDATA%\\npm\\node_modules\\@ibm\\bob\\dist\\bob.js\" "
         "acp --trust";
 
-static const char *ACP_Workspace = "C:\\Temp\\Bob";
+static const char *ACP_Workspace = "%TEMP%\\Bob";
 
 bool ACPSamplerTest()
         {

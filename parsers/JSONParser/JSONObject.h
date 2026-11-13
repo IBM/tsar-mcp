@@ -87,6 +87,7 @@ struct JSON_Object : public JSON_Value
         ~JSON_Object();
         bool AddMember(JSON_Member **MemberToAdd);
         bool AddValue(const char *Key, JSON_Value **ValueToAdd);
+        bool InsertMember(JSON_Member **MemberToAdd, unsigned Position);
         virtual bool isObject() {return true;}
         JSON_Member* RemoveMember(JSON_Member *MemberToRemove);
         JSON_Value* RemoveValue(JSON_Value *ValueToRemove);
@@ -131,6 +132,7 @@ struct JSON_Value_Array : public JSON_Value
         JSON_Value_Array(JSON_Value_Array &Source);
         ~JSON_Value_Array();
         bool AddValue(JSON_Value **ValueToAdd);
+        bool InsertValue(JSON_Value **ValueToAdd, unsigned Position);
         virtual bool isArray() {return true;}
         JSON_Value* RemoveValue(JSON_Value *ValueToRemove);
         JSON_Value* operator [] (unsigned i);
@@ -337,6 +339,26 @@ char* UnescapeJSONString(const char *Source);
         Note: Keys are stored as provided; no escaping is applied 
               automatically. If a key contains special characters, 
               use EscapeJSONString() before inserting it.
+
+   V. The non-NULL Value Invariant
+
+        Every member of a JSON_Object and every element of a
+        JSON_Value_Array holds a non-NULL JSON_Value.
+
+        JSON null is represented by a JSON_Value_Null object - NEVER by a
+        NULL pointer. That was the original representation, before
+        JSON_Value_Null existed, and the two are no longer interchangeable.
+
+        AddMember(), InsertMember(), AddValue() and InsertValue() refuse a
+        NULL Value: they trace the error and return false.
+
+        Use Add_member_null() / Add_value_null() for a JSON null.
+
+  VI. Positional Insertion
+
+        AddMember()/AddValue() append. InsertMember()/InsertValue() place
+        at a chosen Position; a Position beyond the end clamps to an
+        append, which is exactly how the Add forms are expressed.
 
 ******************************************************************************
 **** End Usage Patterns ******************************************************

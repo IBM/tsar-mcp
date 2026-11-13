@@ -199,10 +199,10 @@ bool MCPAsyncWork_spellCheck::BeginHandler()             // Called in thread.
                         return false;
                         }
                 TERROR(("%s: Sampling failed",ProcName));
-                MCPOutput = FormMCPResponse_ERROR(&get_Id(),
-                                  MCPErrorCode_Exception,
-                                  "Sampling Failed",
-                                  "Could not get LLM response");
+                MCPOutput = FormMCPResponse_Text(&get_Id(),
+                                  "Sampling Failed: "
+                                  "Could not get LLM response",
+                                  true);
                 return MCPOutput != NULL;
                 }
         // --------------------------------------------
@@ -251,10 +251,10 @@ char* MCPtool_spellCheck(JSON_Value &idRequest,
         if (!Text)
                 {
                 TERROR(("%s: Missing Argument: 'text'",ProcName));
-                MCPOutput = FormMCPResponse_ERROR(&idRequest,
-                                        MCPErrorCode_InvalidParms,
-                                        "Invalid Params",
-                                        "Missing parameter: text");
+                MCPOutput = FormMCPResponse_Text(&idRequest,
+                                                 "Invalid Params: "
+                                                 "Missing parameter: text",
+                                                 true);
                 }
         else if (!MCPServer_Asynchronous)               // Sync path.
                 {

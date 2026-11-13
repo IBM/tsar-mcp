@@ -137,10 +137,12 @@ COMMONC_OBJS = \
     $(O)\ASThread.obj \
     $(O)\AutoString.obj \
     $(O)\cURLRunner.obj \
+    $(O)\DirList.obj \
     $(O)\ebcdic.obj \
     $(O)\LevelTrace.obj \
     $(O)\LinkList.obj \
     $(O)\MEMprintf.obj \
+    $(O)\MiniGREP.obj \
     $(O)\popenNT.obj \
     $(O)\SnapStack.obj
 

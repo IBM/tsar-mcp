@@ -112,10 +112,12 @@ COMMONC_OBJS = \
     $(O)/ASThread.o \
     $(O)/AutoString.o \
     $(O)/cURLRunner.o \
+    $(O)/DirList.o \
     $(O)/ebcdic.o \
     $(O)/LevelTrace.o \
     $(O)/LinkList.o \
     $(O)/MEMprintf.o \
+    $(O)/MiniGREP.o \
     $(O)/popenNT.o \
     $(O)/SnapStack.o
 
@@ -255,6 +257,8 @@ $(O)/AutoString.o: $(COMMONC_DIR)/AutoString.cpp
 	$(CXX) $(CXXFLAGS) $(INC_COMMONC) -c $(COMMONC_DIR)/AutoString.cpp -o $@
 $(O)/cURLRunner.o: $(COMMONC_DIR)/cURLRunner.cpp
 	$(CXX) $(CXXFLAGS) $(INC_COMMONC) -c $(COMMONC_DIR)/cURLRunner.cpp -o $@
+$(O)/DirList.o: $(COMMONC_DIR)/DirList.cpp
+	$(CXX) $(CXXFLAGS) $(INC_COMMONC) -c $(COMMONC_DIR)/DirList.cpp -o $@
 $(O)/ebcdic.o: $(COMMONC_DIR)/ebcdic.cpp
 	$(CXX) $(CXXFLAGS) $(INC_COMMONC) -c $(COMMONC_DIR)/ebcdic.cpp -o $@
 $(O)/LevelTrace.o: $(COMMONC_DIR)/LevelTrace.cpp
@@ -263,6 +267,8 @@ $(O)/LinkList.o: $(COMMONC_DIR)/LinkList.cpp
 	$(CXX) $(CXXFLAGS) $(INC_COMMONC) -c $(COMMONC_DIR)/LinkList.cpp -o $@
 $(O)/MEMprintf.o: $(COMMONC_DIR)/MEMprintf.cpp
 	$(CXX) $(CXXFLAGS) $(INC_COMMONC) -c $(COMMONC_DIR)/MEMprintf.cpp -o $@
+$(O)/MiniGREP.o: $(COMMONC_DIR)/MiniGREP.cpp
+	$(CXX) $(CXXFLAGS) $(INC_COMMONC) -c $(COMMONC_DIR)/MiniGREP.cpp -o $@
 $(O)/popenNT.o: $(COMMONC_DIR)/popenNT.cpp
 	$(CXX) $(CXXFLAGS) $(INC_COMMONC) -c $(COMMONC_DIR)/popenNT.cpp -o $@
 $(O)/SnapStack.o: $(COMMONC_DIR)/SnapStack.cpp
