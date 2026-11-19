@@ -17,6 +17,7 @@
 #include <math.h>
 
 #include <Errors.h>
+#include <newCommonC.h>
 #include <JSONParser.h>
 
 #ifdef _WIN32
@@ -39,6 +40,7 @@ class JSON_Object_Error : public ErrorBase
 
 struct JSON_Value 
         {
+        public: CommonC_newOperatorBLOCK // NULL returning new() operators.
         private:
                 JSON_Value *Parent;
                 unsigned IndexInParent;
@@ -65,6 +67,7 @@ struct JSON_Value
 
 struct JSON_Member
         {
+        CommonC_newOperatorBLOCK // NULL returning new() operators.
         char *Key;
         struct JSON_Value *Value;
         // ----------------

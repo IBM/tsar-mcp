@@ -20,6 +20,10 @@
         #define MultithreadSafeALLOC 0
 #endif
 
+#ifndef ExpAllocLIMITMB
+        #define ExpAllocLIMITMB 100     // Default parser item allocation (MB).
+#endif
+
 #define MemPoolSIZE (sizeof(StackItem) |        /* >Maximum of all items */  \
                      sizeof(TerminalNodeBase) |                              \
                      sizeof(NonTerminalNodeBase) |                           \
@@ -63,10 +67,12 @@ struct JTQ_MemItem
 class JTQ_MemPool
         {
         private:
-                size_t MaxSize;
+                size_t MaxSize;         // Maximum item size.
                 JTQ_MemItem *Top;
                 unsigned Depth;
                 void *QuickHeap;
+                size_t Allocated;       // Bytes taken from malloc (never
+                size_t Limit;           // returned until exit). 0 = unlimited.
   #if MultithreadSafeALLOC
                 CriticalSection PoolMutex;
   #endif
@@ -78,6 +84,7 @@ class JTQ_MemPool
                 size_t GetMaxSize() {return MaxSize;}
                 unsigned GetDepth() {return Depth;}
                 bool PreallocHeap(unsigned nItems);
+                void SetAllocLimit(unsigned MaxMBytes);
         };
 
 JTQ_MemPool::JTQ_MemPool(size_t Size)
@@ -86,6 +93,16 @@ JTQ_MemPool::JTQ_MemPool(size_t Size)
         MaxSize = Size;
         Top = NULL;
         Depth = 0;
+        Allocated = 0;
+        Limit = (size_t)ExpAllocLIMITMB * 1024 * 1024;
+        return;
+        }
+
+void JTQ_MemPool::SetAllocLimit(unsigned MaxMBytes)
+        {
+        LOCKPOOL;
+        Limit = (size_t)MaxMBytes * 1024 * 1024;
+        UNLOCKPOOL;
         return;
         }
 
@@ -114,8 +131,23 @@ inline JTQ_MemItem* JTQ_MemPool::GetItem()
         UNLOCKPOOL;
         if (Item) return Item;
         size_t MemSize = sizeof(JTQ_MemItem) + MaxSize - 1;
+        // ---- Reserve against the limit; NULL is the failure contract ----
+        LOCKPOOL;
+        if (Limit && (Allocated > Limit || MemSize > Limit - Allocated))
+                {
+                UNLOCKPOOL;
+                return NULL;
+                }
+        Allocated += MemSize;
+        UNLOCKPOOL;
         Item = (JTQ_MemItem *)malloc(MemSize);
-        if (!Item) return NULL;
+        if (!Item)
+                {
+                LOCKPOOL;
+                Allocated -= MemSize;
+                UNLOCKPOOL;
+                return NULL;
+                }
         Item->QuickHeap = false;
         Item->Owner = this;
         return Item;
@@ -127,6 +159,9 @@ bool JTQ_MemPool::PreallocHeap(unsigned nItems)
         size_t MemSize = sizeof(JTQ_MemItem) + MaxSize - 1;
         QuickHeap = malloc(nItems * MemSize);
         if (!QuickHeap) return false;
+        LOCKPOOL;
+        Allocated += nItems * MemSize;
+        UNLOCKPOOL;
         for (unsigned i=0; i < nItems; i++)
                 {
                 size_t Index = i * MemSize;
@@ -162,9 +197,16 @@ void* JSONExpAlloc(size_t Size)
 
 void JSONExpDealloc(void *Memory)
         {
+        if (!Memory) return;                    // As free(NULL).
         JTQ_MemItem *Item = DataToItem(Memory);
         if (Item->Owner) Item->Owner->ReleaseItem(Item);
         else free(Item);
+        return;
+        }
+
+void SetJSONExpAllocLimit(unsigned MaxMBytes)
+        {
+        MemPool.SetAllocLimit(MaxMBytes);
         return;
         }
 

@@ -139,11 +139,25 @@ Node* ParseJSONBuffer(StateMachine &LRMachine,
                         }
                 else if (Item->SymbolClass == SC_Null)
                         {
-                        Status = Parser.NextInputEOL(Item);
+                        try     {
+                                Status = Parser.NextInputEOL(Item);
+                                }
+                        catch (...)             // Error_Memory: Item is ours.
+                                {
+                                delete Item;
+                                throw;
+                                }
                         if (Status == pS_Good) Item = NULL;
                         }
                 else    {
-                        Status = Parser.NextInput(Item);
+                        try     {
+                                Status = Parser.NextInput(Item);
+                                }
+                        catch (...)             // Error_Memory: Item is ours.
+                                {
+                                delete Item;
+                                throw;
+                                }
                         if (Status == pS_Good) Item = NULL;
                         }
 		}

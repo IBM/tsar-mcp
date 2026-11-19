@@ -266,7 +266,15 @@ Node* Transition::DoAction(ScanStack &ScanCB, inputT *Input)
                 NewNode = (TerminalNode *)Info.NewNodeFn(Info.NodeTypeID);
                 if (!NewNode) throw Error_Memory();
                 NewNode->Read(*Input);
-                PushNode(ScanCB,GetToState(),NewNode);
+                try     {
+                        PushNode(ScanCB,GetToState(),NewNode);
+                        }
+                catch (...)
+                        {
+                        NewNode->Read(NULL);    // *Input stays with the caller.
+                        delete NewNode;
+                        throw;
+                        }
                 *Input = NULL;
                 return NULL;
                 }

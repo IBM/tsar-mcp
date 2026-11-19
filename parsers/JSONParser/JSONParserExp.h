@@ -33,6 +33,7 @@ void JSONExpDealloc(void *Memory);
 bool JSONExpPrealloc(unsigned nItems);
 unsigned JSONExpGetDepth();
 
+void SetJSONExpAllocLimit(unsigned MaxMBytes);  // 0 = Unlimited.
 void SetMultithreadSafeAlloc(bool beSafe);      // Default: Compiler __MT__.
 
 /* **************************************************************************
@@ -63,6 +64,31 @@ void SetMultithreadSafeAlloc(bool beSafe);      // Default: Compiler __MT__.
                                         Call this after parsing and freeing
                                         an average sized document to determine
                                         a good priming value.
+
+                        The memory the heap may take from malloc is bounded by
+
+                                - SetJSONExpAllocLimit(MaxMBytes)
+
+                                        In megabytes. The default is
+                                        ExpAllocLIMITMB (JSONParserExp.cpp,
+                                        override with -DExpAllocLIMITMB=n).
+                                        0 means unlimited. Once the limit
+                                        has been taken, an item the free
+                                        list cannot supply fails the same
+                                        way malloc failure does: the parser
+                                        throws Error_Memory (or
+                                        Error_ParseJSON for a lexical item).
+                                        The heap never returns memory to the
+                                        OS before exit, so the limit also
+                                        bounds the memory it keeps between
+                                        requests. The limit is shared by
+                                        every thread using the heap.
+                                        It counts parser items only: every
+                                        item costs the same (the largest
+                                        item size plus a header), and
+                                        token text is not copied (items
+                                        point into the input buffer).
+                                        Set it BEFORE parsing.
 
  ****************************************************************************
  **** Example ***************************************************************

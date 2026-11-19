@@ -129,7 +129,7 @@ class Node
                 // ***************************
                 // **** Memory Management ****
                 // ***************************
-                void* operator new(size_t Size) {return ExpAlloc(Size);}
+                void* operator new(size_t Size) newNOTHROW {return ExpAlloc(Size);}
                 void operator delete(void *Item) {ExpDealloc(Item);}
         };
 
@@ -237,7 +237,7 @@ struct StackItem : Link
         // ***************************
         // **** Memory Management ****
         // ***************************
-        void* operator new(size_t Size) {return ExpAlloc(Size);}
+        void* operator new(size_t Size) newNOTHROW {return ExpAlloc(Size);}
         void operator delete(void *Item) {ExpDealloc(Item);}
         };
 

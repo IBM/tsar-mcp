@@ -31,6 +31,8 @@
 // ************************
 // Converts a string to an amount in cents,
 // handling US and DE thousands and decimal separators.
+// Number of cents is +-INT_MAX.
+// For a saturated value, JSON_Value_Number::isDEC2() correctly reports false.
 // ***************************************************************************
 
 #define isThousandsSep(c,USFormat) \
@@ -39,40 +41,50 @@
 #define isDecimalSep(c,USFormat) \
         ((USFormat && (c) == '.') || ((c) == ',' && !(USFormat)))
 
-int atoDEC2(const char *str, bool USformat)     // Returns amount in cents
+#define DEC2_MAX 0x7FFFFFFF
+
+int atoDEC2(const char *str, size_t Length, bool USformat) // Returns cents
         {
+        const char *end = str + Length;
         // Skip leading whitespace
-        while (isspace((unsigned char)*str)) str++;
+        while (str < end && isspace((unsigned char)*str)) str++;
         // Handle optional sign
         int sign = 1;
-        if (*str == '-') { sign = -1; str++; }
-        else if (*str == '+') { str++; }
-        // Parse integer part
-        int result = 0;
-        while (*str && *str != ';')
+        if (str < end && *str == '-') { sign = -1; str++; }
+        else if (str < end && *str == '+') { str++; }
+        // Parse integer part (stops growing once beyond the int range)
+        longlong_t result = 0;
+        while (str < end && *str && *str != ';')
                 {
                 int c = *str;
-                if (isThousandsSep(c, USformat)) { str++; continue; } 
+                if (isThousandsSep(c, USformat)) { str++; continue; }
                 if (!isdigit((unsigned char)c)) break;
-                result = result * 10 + (c - '0');
+                if (result <= DEC2_MAX) result = result * 10 + (c - '0');
                 str++;
                 }
         // Parse fractional part
         int frac = 0;
-        if (isDecimalSep(*str, USformat))
+        if (str < end && isDecimalSep(*str, USformat))
                {
                str++; // Skip the decimal separator
                for (int idec=0; idec < 2; idec++)  // Two decimal places
                        {
                         frac *= 10;
-                        if (isdigit((unsigned char)*str))
+                        if (str < end && isdigit((unsigned char)*str))
                                 {
                                 frac += (*str - '0');
                                 str++;
                                 }
                         }
                }
-        return sign * (result * 100 + frac);
+        longlong_t cents = result * 100 + frac;         // result <= ~2.2e10.
+        if (cents > DEC2_MAX) cents = DEC2_MAX;
+        return sign * (int)cents;
+        }
+
+int atoDEC2(const char *str, bool USformat)     // Returns amount in cents
+        {
+        return atoDEC2(str,strlen(str),USformat);
         }
 
 int atoDEC2(const char *str)                    // Returns amount in cents
@@ -1864,8 +1876,49 @@ class Error_BuildJSON_Depth : public JSON_Object_Error
                 const char* GetProcName() {return ProcName;}
         };
 
-static void BuildJSONArray(unsigned Depth, 
-                           JSON_Value_Array &Array, 
+// -------------------------------------------------
+// ---- BuildGuardValue  / BuildGuardMember --------
+// -------------------------------------------------
+//
+// Owns a freshly built object until it is handed
+// to its parent. Deletes it if an exception 
+// unwinds past, so nothing leaks.
+//
+// Warning: Do NOT use catch(...) {delete p; throw;} 
+//          for this. The builder is recursive, and 
+//          a catch block runs on top of the stack 
+//          of the throw, so a rethrow at every 
+//          nesting level piles the handlers up 
+//          and overflows the stack. Destructors 
+//          run during unwinding and do not nest.
+// -------------------------------------------------
+  
+class BuildGuardValue           // JSON_Object / JSON_Value_Array
+        {
+        private:
+                JSON_Value *Owned;      // ~JSON_Value is virtual.
+        public:
+                BuildGuardValue(JSON_Value *Value) {Owned = Value;}
+                ~BuildGuardValue() {delete Owned;}
+                void Release() {Owned = NULL;}
+        };
+
+class BuildGuardMember
+        {
+        private:
+                JSON_Member *Owned;
+        public:
+                BuildGuardMember(JSON_Member *Member) {Owned = Member;}
+                ~BuildGuardMember() {delete Owned;}
+                void Release() {Owned = NULL;}
+        };
+
+// ------------------------------------------
+// ---- BuildJSONArray / BuildJSONObject ----
+// ------------------------------------------
+
+static void BuildJSONArray(unsigned Depth,
+                           JSON_Value_Array &Array,
                            Node *Expression);
 
 static void BuildJSONObject(unsigned Depth,
@@ -1892,7 +1945,12 @@ static JSON_Value* BuildJSONValue(unsigned Depth, Node *ValueNode)
                         LexicalItem *Item = (LexicalItem *)TNode->GetValue();
                         if (Item->SymbolClass != SC_Null)
                                 {
-                                newString->SetString(Item->String+1,Item->Length-2);
+                                if (!newString->SetString(Item->String+1,Item->Length-2))
+                                        {
+                                        delete newString;
+                                        TERROR(("%s: Unable to alloc string",ProcName));
+                                        throw JSON_Object_Error("Unable to alloc string");
+                                        }
                                 }
                         ReturnValue = newString;
                         break;
@@ -1915,7 +1973,9 @@ static JSON_Value* BuildJSONValue(unsigned Depth, Node *ValueNode)
                                                            atof(Item->String);
                                 newNumber->int_number = (int)newNumber->long_number;
                                 newNumber->dec2_number = SignValue * 
-                                                         atoDEC2(Item->String);
+                                                         atoDEC2(Item->String,
+                                                                 Item->Length,
+                                                                 true);
                                 }
                         ReturnValue = newNumber;
                         break;
@@ -1952,7 +2012,9 @@ static JSON_Value* BuildJSONValue(unsigned Depth, Node *ValueNode)
                                 TERROR(("%s: Unable to alloc newObject",ProcName));
                                 throw JSON_Object_Error("Unable to alloc newObject");
                                 }
+                        BuildGuardValue Guard(newObject);
                         BuildJSONObject(Depth+1,*newObject,Left);
+                        Guard.Release();
                         ReturnValue = newObject;
                         break;
                         }
@@ -1968,7 +2030,9 @@ static JSON_Value* BuildJSONValue(unsigned Depth, Node *ValueNode)
                                 TERROR(("%s: Unable to alloc newArray",ProcName));
                                 throw JSON_Object_Error("Unable to alloc newArray");
                                 }
+                        BuildGuardValue Guard(newArray);
                         BuildJSONArray(Depth+1,*newArray,Left);
+                        Guard.Release();
                         ReturnValue = newArray;
                         break;
                         }
@@ -2030,10 +2094,11 @@ static void BuildJSONArray(unsigned Depth,
                                 }
                         JSON_Value* newValue = BuildJSONValue(Depth+1,Expression);
                         Array.AddValue(&newValue);
-                        if (newValue) 
+                        if (newValue)
                                 {
                                 TERROR(("%s: Unable to add Value",ProcName));
                                 delete newValue;
+                                throw JSON_Object_Error("Unable to add Value");
                                 }
                         // ***************************************
                         // **** Skip already handled children ****
@@ -2073,6 +2138,7 @@ static void BuildJSONObject(unsigned Depth,
                                 }
                         Node *NameNode = Expression->GetChild(0);
                         Node *ValueNode = Expression->GetChild(2);
+                        BuildGuardMember Guard(newMember);
                         // -------------
                         // ---- Key ----
                         // -------------
@@ -2081,17 +2147,23 @@ static void BuildJSONObject(unsigned Depth,
                         LexicalItem *Item = (LexicalItem *)TNode->GetValue();
                         if (Item->SymbolClass != SC_Null)
                                 {
-                                newMember->SetKey(Item->String+1,Item->Length-2);
+                                if (!newMember->SetKey(Item->String+1,Item->Length-2))
+                                        {
+                                        TERROR(("%s: Unable to alloc Key",ProcName));
+                                        throw JSON_Object_Error("Unable to alloc Key");
+                                        }
                                 }
                         // ---------------
                         // ---- Value ----
                         // ---------------
                         newMember->Value = BuildJSONValue(Depth+1,ValueNode);
+                        Guard.Release();
                         Object.AddMember(&newMember);
-                        if (newMember) 
+                        if (newMember)
                                 {
                                 TERROR(("%s: Unable to add Member",ProcName));
                                 delete newMember;
+                                throw JSON_Object_Error("Unable to add Member");
                                 }
                         // ***************************************
                         // **** Skip already handled children ****
@@ -2131,6 +2203,12 @@ JSON_Object* BuildJSONObject(Node* JSONExpression)
                 TERROR(("%s: Object Build Failed: %s",
                         ProcName,
                         Error.GetText()));
+                delete Object;
+                Object = NULL;
+                }
+        catch (...)                             // Out of memory, etc.
+                {
+                TERROR(("%s: Object Build Failed: unexpected exception",ProcName));
                 delete Object;
                 Object = NULL;
                 }

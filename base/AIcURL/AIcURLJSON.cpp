@@ -192,6 +192,12 @@ Node* ParseJSON_mt(const char *JSONBuffer)
                 TPRINT(("Cought Error: %s",E.GetErrorText()));
                 TPRINT(("****************************************"));
                 }
+        catch (...)                             // Never leave csJSONParser
+                {                               // held (deadlocks all parsing).
+                TPRINT(("****************************************"));
+                TPRINT(("Cought Error: unexpected exception"));
+                TPRINT(("****************************************"));
+                }
         csJSONParser.Release();
         return JSONExpression;
         }

@@ -43,6 +43,7 @@
 // **************************************************************************
 
 #ifndef __Expression_Parser
+        #include <newCommonC.h>
         extern void* (__ExpDECL *ExpAlloc)(size_t Size);
         extern void (__ExpDECL *ExpDealloc)(void *Memory);
 #endif
@@ -53,7 +54,7 @@ struct JSONLexicalItem : public LexicalItem /* inputT */
         // ***************************
         // **** Memory Management ****
         // ***************************
-        void* operator new(size_t Size) {return ExpAlloc(Size);}
+        void* operator new(size_t Size) newNOTHROW {return ExpAlloc(Size);}
         void operator delete(void *Item) {ExpDealloc(Item);}
         };
 

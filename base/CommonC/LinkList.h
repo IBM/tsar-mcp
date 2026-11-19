@@ -16,9 +16,11 @@
      #define __Link_List_Classes
 
 #include <stddef.h>
+#include <newCommonC.h>
 
 class Link
 {
+    public: CommonC_newOperatorBLOCK // NULL returning new() operators.
     private:
 
 	Link *Prev, *Next;
