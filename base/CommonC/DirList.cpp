@@ -29,7 +29,14 @@
 #endif
 
 #ifdef _AIX
-        #include <procinfo.h>
+        #ifdef _DEBUG
+                #undef _DEBUG
+                #include <procinfo.h>   // _DEBUG Define Clash.
+                #undef _DEBUG
+                #define _DEBUG 1
+        #else
+                #include <procinfo.h>
+        #endif
 #endif
 
 #ifdef __BORLANDC__

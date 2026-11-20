@@ -119,7 +119,7 @@ class A2U
         public:
                 A2U(const char *ASCIIString);
                 A2U(const char *ASCIIString, size_t Length);
-                A2U(wchar_t *UNICODEDest, const char *ASCII, size_t Length);
+                A2U(wchar_t *UNICODEDest, const char *ASCIIString, size_t Length);
                 ~A2U();
                 operator wchar_t* () {return UNICODEString;}
                 operator const wchar_t* () {return UNICODEString;}
@@ -132,7 +132,7 @@ class U2A
         public:
                 U2A(const wchar_t *UNICODEString);
                 U2A(const wchar_t *UNICODEString, size_t Length);
-                U2A(char *ASCIIDest, const wchar_t *UNICODE, size_t Length);
+                U2A(char *ASCIIDest, const wchar_t *UNICODEString, size_t Length);
                 ~U2A();
                 operator char* () {return ASCIIString;}
                 operator const char* () {return ASCIIString;}
